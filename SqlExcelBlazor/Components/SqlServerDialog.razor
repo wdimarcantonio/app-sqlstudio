@@ -1,0 +1,238 @@
+@using SqlExcelBlazor.Models
+@using SqlExcelBlazor.Services
+@inject SqlServerClientService SqlService
+@inject AppState AppState
+
+<div class="modal-backdrop" @onclick="Close"></div>
+<div class="modal-dialog">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>🔗 Connetti a SQL Server</h3>
+            <button class="btn-close" @onclick="Close">✖</button>
+        </div>
+        
+        <div class="modal-body">
+            @if (step == 1)
+            {
+                <div class="connection-form">
+                    <div class="form-group">
+                        <label>Server Instance</label>
+                        <input type="text" class="form-input" @bind="server" placeholder="es. localhost oppure 192.168.1.10" />
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Nome Database</label>
+                        <input type="text" class="form-input" @bind="database" placeholder="es. MyDatabase" />
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Autenticazione</label>
+                        <select class="form-select" @bind="authType">
+                            <option value="sql">SQL Server Authentication</option>
+                            <option value="windows">Windows Authentication (Integrated)</option>
+                        </select>
+                    </div>
+                    
+                    @if (authType == "sql")
+                    {
+                        <div class="form-row" style="display: flex; gap: 1rem;">
+                            <div class="form-group" style="flex: 1;">
+                                <label>Username</label>
+                                <input type="text" class="form-input" @bind="username" />
+                            </div>
+                            <div class="form-group" style="flex: 1;">
+                                <label>Password</label>
+                                <input type="password" class="form-input" @bind="password" />
+                            </div>
+                        </div>
+                    }
+
+                    <div class="form-group checkbox-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+                        <input type="checkbox" id="trustCert" @bind="trustServerCert" />
+                        <label for="trustCert" style="margin:0; cursor: pointer;">Trust Server Certificate (utile in dev)</label>
+                    </div>
+                </div>
+                
+                <div class="error-text">@errorMessage</div>
+                
+                <div class="actions">
+                    <button class="btn btn-primary" @onclick="Connect" disabled="@isLoading">
+                        @if (isLoading) { <span>⏳ Connessione...</span> } else { <span>Connetti e Seleziona Tabelle</span> }
+                    </button>
+                </div>
+            }
+            else if (step == 2)
+            {
+                <div class="table-selection">
+                    <div class="search-box">
+                        <input type="text" class="form-input" @bind="searchTerm" @bind:event="oninput" placeholder="🔍 Cerca tabella..." />
+                    </div>
+                    
+                    <div class="schema-tree">
+                        @foreach (var schemaGroup in FilteredTables.GroupBy(t => t.Schema))
+                        {
+                            <div class="schema-group">
+                                <div class="schema-header">📂 @schemaGroup.Key</div>
+                                @foreach (var table in schemaGroup)
+                                {
+                                    <div class="table-item @(table.IsSelected ? "selected" : "")">
+                                        <div class="table-check">
+                                            <input type="checkbox" @bind="table.IsSelected" id="chk_@table.FullName" />
+                                            <label for="chk_@table.FullName">
+                                                <span class="icon">@(table.Type == "VIEW" ? "👁️" : "📅")</span>
+                                                @table.Name
+                                            </label>
+                                        </div>
+                                        @if (table.IsSelected)
+                                        {
+                                            <input type="text" class="alias-input" @bind="table.Alias" placeholder="Alias (opzionale)" />
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+                
+                <div class="actions">
+                    <button class="btn btn-secondary" @onclick="() => step = 1">⬅ Indietro</button>
+                    <button class="btn btn-primary" @onclick="ImportSelected" disabled="@(!FilteredTables.Any(t => t.IsSelected) || isLoading)">
+                        @if (isLoading) { <span>⏳ Importazione...</span> } else { <span>Importa Selezionati</span> }
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+    
+    // Connection Form Fields
+    private string server = "localhost";
+    private string database = "";
+    private string authType = "sql"; // "sql" or "windows"
+    private string username = "sa";
+    private string password = "";
+    private bool trustServerCert = true;
+
+    private int step = 1;
+    private string connectionString = "";
+    private string errorMessage = "";
+    private bool isLoading = false;
+    private List<LocalSchemaItem> tables = new();
+    private string searchTerm = "";
+    
+    private IEnumerable<LocalSchemaItem> FilteredTables => 
+        string.IsNullOrWhiteSpace(searchTerm) 
+        ? tables 
+        : tables.Where(t => t.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || t.Schema.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+    
+    private void BuildConnectionString()
+    {
+        var parts = new List<string>();
+        parts.Add($"Server={server}");
+        parts.Add($"Database={database}");
+        parts.Add($"TrustServerCertificate={(trustServerCert ? "True" : "False")}");
+
+        if (authType == "windows")
+        {
+            parts.Add("Integrated Security=True");
+        }
+        else
+        {
+            parts.Add($"User Id={username}");
+            parts.Add($"Password={password}");
+            parts.Add("Integrated Security=False");
+        }
+        
+        connectionString = string.Join(";", parts);
+    }
+
+    private async Task Connect()
+    {
+        // Build valid connection string from form
+        try 
+        {
+            if (string.IsNullOrWhiteSpace(server)) throw new Exception("Il campo Server è obbligatorio.");
+            if (string.IsNullOrWhiteSpace(database)) throw new Exception("Il campo Database è obbligatorio.");
+            
+            BuildConnectionString();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = "";
+        
+        try
+        {
+            var serverItems = await SqlService.GetTables(connectionString);
+            tables = serverItems.Select(i => new LocalSchemaItem 
+            { 
+                Schema = i.Schema, 
+                Name = i.Name, 
+                Type = i.Type,
+                Alias = i.Name // Default alias
+            }).ToList();
+            
+            step = 2;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Errore di connessione: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+    
+    private async Task ImportSelected()
+    {
+        isLoading = true;
+        try
+        {
+            var selected = tables.Where(t => t.IsSelected).ToList();
+            foreach (var table in selected)
+            {
+                var query = $"SELECT * FROM [{table.Schema}].[{table.Name}]";
+                // Optionally add TOP 1000 or allow user to filter? Assuming full import as per current logic.
+                
+                var result = await SqlService.ExecuteQuery(connectionString, query);
+                
+                var dataSource = new DataSource
+                {
+                    Name = table.Name,
+                    Type = DataSourceType.SqlServer,
+                    TableAlias = string.IsNullOrWhiteSpace(table.Alias) ? table.Name : table.Alias,
+                    Columns = result.Columns,
+                    RowCount = result.Rows.Count,
+                    Data = result.Rows.Select(r => r.ToDictionary(k => k.Key, v => v.Value?.ToString() ?? "")).ToList(),
+                    IsLoaded = true
+                };
+                
+                AppState.AddDataSource(dataSource);
+            }
+            
+            AppState.StatusMessage = $"Importate {selected.Count} tabelle da SQL Server";
+            await Close();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Errore importazione: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+    
+    private async Task Close()
+    {
+        await OnClose.InvokeAsync();
+    }
+}

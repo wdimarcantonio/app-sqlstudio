@@ -1,0 +1,225 @@
+@using SqlExcelBlazor.Models
+@using SqlExcelBlazor.Services
+@inject AppState AppState
+@inject SqliteApiClient SqliteApi
+@inject IJSRuntime JS
+
+<div class="tab-panel">
+    <div class="panel-stack">
+        <!-- Editor Query -->
+        <div class="card">
+            <h2>📝 Query SQL</h2>
+            
+            <MonacoSqlEditor @bind-Value="AppState.SqlQuery" 
+                             DataSources="@AppState.DataSources"
+                             Height="300px"
+                             Theme="vs-dark" />
+            
+            <div class="query-actions">
+                <button class="btn btn-primary btn-lg" @onclick="ExecuteQueryAsync">
+                    ▶️ Esegui Query (SQLite)
+                </button>
+                <span class="tables-info">@AppState.GetLoadedTablesInfo()</span>
+            </div>
+        </div>
+        
+        <!-- Risultati -->
+        <div class="card">
+            <div class="results-header">
+                <h2>📊 Risultati</h2>
+                @if (AppState.LastResult?.IsSuccess == true)
+                {
+                    <span class="results-info">
+                        @AppState.LastResult.RowCount righe | @AppState.LastResult.ColumnCount colonne | 
+                        @AppState.LastResult.ExecutionTime.TotalMilliseconds.ToString("F2")ms
+                    </span>
+                }
+            </div>
+            
+            @if (AppState.LastResult == null)
+            {
+                <div class="empty-state">
+                    <p>Esegui una query per visualizzare i risultati</p>
+                </div>
+            }
+            else if (!AppState.LastResult.IsSuccess)
+            {
+                <div class="error-message">
+                    <strong>Errore:</strong> @AppState.LastResult.ErrorMessage
+                </div>
+            }
+            else
+            {
+                <div class="data-grid-container">
+                    <table class="data-grid">
+                        <thead>
+                            <tr>
+                                @foreach (var col in AppState.LastResult.Columns)
+                                {
+                                    <th>@col</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                try
+                                {
+                                    // Use GetPagedRows() instead of full list
+                                    foreach (var row in GetPagedRows())
+                                    {
+                                        <tr>
+                                            @foreach (var col in AppState.LastResult.Columns)
+                                            {
+                                                <td>@row.GetValueOrDefault(col)?.ToString()</td>
+                                            }
+                                        </tr>
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    <tr>
+                                        <td colspan="@AppState.LastResult.Columns.Count" style="color: red; padding: 1rem;">
+                                            <strong>ERRORE RENDERING:</strong> @ex.Message
+                                            <pre style="white-space: pre-wrap; font-size: 0.8em;">@ex.StackTrace</pre>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination Controls -->
+                <div class="pagination-controls" style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; margin-top: 1rem; margin-bottom: 1rem; padding: 0.75rem; background: var(--surface); border: 1px solid var(--card); border-radius: 8px;">
+                    <div class="page-size" style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 0.9rem; color: var(--text-secondary);">Righe per pagina:</span>
+                        <select value="@PageSize" @onchange="@(e => { PageSize = int.Parse(e.Value.ToString()); CurrentPage = 1; })" style="padding: 0.3rem; border-radius: 4px; background: var(--card); color: var(--text-primary); border: 1px solid var(--text-secondary);">
+                            <option value="10">10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                            <option value="500">500</option>
+                        </select>
+                    </div>
+
+                    <div class="page-nav" style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn btn-sm btn-secondary" disabled="@(CurrentPage == 1)" @onclick="() => ChangePage(1)" title="Prima Pagina">⏮</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(CurrentPage == 1)" @onclick="() => ChangePage(CurrentPage - 1)" title="Pagina Precedente">◀</button>
+                        
+                        <span style="min-width: 100px; text-align: center; font-size: 0.9rem;">
+                            Pagina <strong style="color: var(--primary);">@CurrentPage</strong> di <strong>@TotalPages</strong>
+                        </span>
+                        
+                        <button class="btn btn-sm btn-secondary" disabled="@(CurrentPage == TotalPages)" @onclick="() => ChangePage(CurrentPage + 1)" title="Pagina Successiva">▶</button>
+                        <button class="btn btn-sm btn-secondary" disabled="@(CurrentPage == TotalPages)" @onclick="() => ChangePage(TotalPages)" title="Ultima Pagina">⏭</button>
+                    </div>
+                    
+                    <div class="total-info" style="font-size: 0.85rem; color: var(--text-secondary);">
+                        Totale righe: @(AppState.LastResult?.Rows?.Count ?? 0)
+                    </div>
+                </div>
+                
+                <!-- Export Buttons -->
+                <div class="export-actions">
+                    <button class="btn btn-secondary" @onclick="ExportExcel">
+                        📗 Esporta Excel
+                    </button>
+                    <button class="btn btn-secondary" @onclick="ExportCsv">
+                        📄 Esporta CSV
+                    </button>
+                    <button class="btn btn-secondary" @onclick="ExportSqlScript">
+                        🗄️ Script SQL
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private async Task ExecuteQueryAsync()
+    {
+        // Inject SqliteApi into AppState if not set
+        AppState.SqliteApi = SqliteApi;
+        await AppState.ExecuteQueryWithSqliteAsync();
+        CurrentPage = 1; // Reset pagination on new query
+    }
+
+    // Pagination Logic
+    private int CurrentPage { get; set; } = 1;
+    private int PageSize { get; set; } = 50;
+
+    private int TotalPages => AppState.LastResult?.Rows == null || PageSize <= 0 ? 1 : 
+        (int)Math.Ceiling(AppState.LastResult.Rows.Count / (double)PageSize);
+
+    private IEnumerable<Dictionary<string, object?>> GetPagedRows()
+    {
+        if (AppState.LastResult?.Rows == null) return Enumerable.Empty<Dictionary<string, object?>>();
+        
+        return AppState.LastResult.Rows
+            .Skip((CurrentPage - 1) * PageSize)
+            .Take(PageSize);
+    }
+
+    private void ChangePage(int newPage)
+    {
+        if (newPage >= 1 && newPage <= TotalPages)
+        {
+            CurrentPage = newPage;
+        }
+    }
+    
+    private async Task ExportExcel()
+    {
+        if (AppState.LastResult == null || !AppState.LastResult.IsSuccess) return;
+        
+        try
+        {
+            var bytes = AppState.ExcelService.GenerateExcel(AppState.LastResult);
+            await JS.InvokeVoidAsync("downloadFile", "risultati.xlsx", 
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                Convert.ToBase64String(bytes));
+            AppState.StatusMessage = "File Excel scaricato";
+        }
+        catch (Exception ex)
+        {
+            AppState.StatusMessage = $"Errore export: {ex.Message}";
+        }
+    }
+    
+    private async Task ExportCsv()
+    {
+        if (AppState.LastResult == null || !AppState.LastResult.IsSuccess) return;
+        
+        try
+        {
+            var csv = AppState.CsvService.GenerateCsv(AppState.LastResult);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(csv);
+            await JS.InvokeVoidAsync("downloadFile", "risultati.csv", "text/csv", 
+                Convert.ToBase64String(bytes));
+            AppState.StatusMessage = "File CSV scaricato";
+        }
+        catch (Exception ex)
+        {
+            AppState.StatusMessage = $"Errore export: {ex.Message}";
+        }
+    }
+    
+    private async Task ExportSqlScript()
+    {
+        if (AppState.LastResult == null || !AppState.LastResult.IsSuccess) return;
+        
+        try
+        {
+            var sql = AppState.SqlExportService.GenerateInsertScript(AppState.LastResult, "ExportedTable");
+            var bytes = System.Text.Encoding.UTF8.GetBytes(sql);
+            await JS.InvokeVoidAsync("downloadFile", "script.sql", "text/plain", 
+                Convert.ToBase64String(bytes));
+            AppState.StatusMessage = "Script SQL scaricato";
+        }
+        catch (Exception ex)
+        {
+            AppState.StatusMessage = $"Errore export: {ex.Message}";
+        }
+    }
+}

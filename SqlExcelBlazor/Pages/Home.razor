@@ -1,0 +1,71 @@
+﻿@page "/"
+@using SqlExcelBlazor.Models
+@using SqlExcelBlazor.Services
+@using SqlExcelBlazor.Components
+@inject AppState AppState
+@inject IJSRuntime JS
+
+<div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+        <div class="header-content">
+            <span class="logo">📊</span>
+            <div class="header-text">
+                <h1>SQL Excel App</h1>
+                <span class="subtitle">@AppState.GetLoadedTablesInfo()</span>
+            </div>
+        </div>
+        @if (AppState.IsLoading)
+        {
+            <div class="loading-bar"></div>
+        }
+    </header>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab @(activeTab == 0 ? "active" : "")" @onclick="() => activeTab = 0">
+            📁 Origini Dati
+        </button>
+        <button class="tab @(activeTab == 1 ? "active" : "")" @onclick="() => activeTab = 1">
+            🔧 Costruzione Query
+        </button>
+        <button class="tab @(activeTab == 2 ? "active" : "")" @onclick="() => activeTab = 2">
+            ▶️ Esecuzione Query
+        </button>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="tab-content">
+        @switch (activeTab)
+        {
+            case 0:
+                <DataSourcesTab />
+                break;
+            case 1:
+                <QueryBuilderTab />
+                break;
+            case 2:
+                <ExecutionTab />
+                break;
+        }
+    </div>
+
+    <!-- Status Bar -->
+    <footer class="status-bar">
+        <span>@AppState.StatusMessage</span>
+    </footer>
+</div>
+
+@code {
+    private int activeTab = 0;
+
+    protected override void OnInitialized()
+    {
+        AppState.OnChange += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        AppState.OnChange -= StateHasChanged;
+    }
+}

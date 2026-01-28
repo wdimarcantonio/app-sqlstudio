@@ -1,0 +1,207 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+
+namespace SqlExcelBlazor.Services;
+
+/// <summary>
+/// Client per comunicare con l'API SQLite del backend
+/// </summary>
+public class SqliteApiClient
+{
+    private readonly HttpClient _httpClient;
+
+    public SqliteApiClient(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
+
+    /// <summary>
+    /// Carica un file Excel in SQLite nel backend
+    /// </summary>
+    public async Task<UploadResult> UploadExcelAsync(Stream fileStream, string fileName, string? tableName = null)
+    {
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            using var streamContent = new StreamContent(fileStream);
+            
+            content.Add(streamContent, "file", fileName);
+            if (!string.IsNullOrEmpty(tableName))
+            {
+                content.Add(new StringContent(tableName), "tableName");
+            }
+
+            var response = await _httpClient.PostAsync("api/sqlite/upload", content);
+            var json = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = JsonSerializer.Deserialize<UploadSuccessResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return new UploadResult
+                {
+                    Success = true,
+                    TableName = result?.TableName ?? "",
+                    RowCount = result?.RowCount ?? 0,
+                    Columns = result?.Columns ?? new List<string>()
+                };
+            }
+            else
+            {
+                var error = JsonSerializer.Deserialize<ErrorResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return new UploadResult { Success = false, ErrorMessage = error?.Error ?? "Errore sconosciuto" };
+            }
+        }
+        catch (Exception ex)
+        {
+            return new UploadResult { Success = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Carica un file CSV in SQLite nel backend
+    /// </summary>
+    public async Task<UploadResult> UploadCsvAsync(Stream fileStream, string fileName, string? tableName = null, string separator = ";")
+    {
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            using var streamContent = new StreamContent(fileStream);
+            
+            content.Add(streamContent, "file", fileName);
+            if (!string.IsNullOrEmpty(tableName))
+            {
+                content.Add(new StringContent(tableName), "tableName");
+            }
+            content.Add(new StringContent(separator), "separator");
+
+            var response = await _httpClient.PostAsync("api/sqlite/upload-csv", content);
+            var json = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = JsonSerializer.Deserialize<UploadSuccessResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return new UploadResult
+                {
+                    Success = true,
+                    TableName = result?.TableName ?? "",
+                    RowCount = result?.RowCount ?? 0,
+                    Columns = result?.Columns ?? new List<string>()
+                };
+            }
+            else
+            {
+                var error = JsonSerializer.Deserialize<ErrorResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return new UploadResult { Success = false, ErrorMessage = error?.Error ?? "Errore sconosciuto" };
+            }
+        }
+        catch (Exception ex)
+        {
+            return new UploadResult { Success = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Esegue una query SQL sul backend
+    /// </summary>
+    public async Task<SqliteQueryResult> ExecuteQueryAsync(string sql)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("api/sqlite/query", new { sql });
+            var result = await response.Content.ReadFromJsonAsync<SqliteQueryResult>();
+            return result ?? new SqliteQueryResult { IsSuccess = false, ErrorMessage = "Risposta vuota" };
+        }
+        catch (Exception ex)
+        {
+            return new SqliteQueryResult { IsSuccess = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Ottiene la lista delle tabelle caricate
+    /// </summary>
+    public async Task<List<string>> GetTablesAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<TablesResponse>("api/sqlite/tables");
+            return response?.Tables ?? new List<string>();
+        }
+        catch
+        {
+            return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// Rinomina una tabella nel backend
+    /// </summary>
+    public async Task<bool> RenameTableAsync(string oldName, string newName)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("api/sqlite/rename-table", new { oldName, newName });
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Elimina una tabella dal backend
+    /// </summary>
+    public async Task<bool> DropTableAsync(string tableName)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("api/sqlite/drop-table", new { tableName });
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+}
+
+// DTOs
+public class UploadResult
+{
+    public bool Success { get; set; }
+    public string? ErrorMessage { get; set; }
+    public string TableName { get; set; } = "";
+    public int RowCount { get; set; }
+    public List<string> Columns { get; set; } = new();
+}
+
+public class UploadSuccessResponse
+{
+    public bool Success { get; set; }
+    public string TableName { get; set; } = "";
+    public int RowCount { get; set; }
+    public List<string> Columns { get; set; } = new();
+}
+
+public class ErrorResponse
+{
+    public bool Success { get; set; }
+    public string? Error { get; set; }
+}
+
+public class SqliteQueryResult
+{
+    public bool IsSuccess { get; set; }
+    public string? ErrorMessage { get; set; }
+    public List<string> Columns { get; set; } = new();
+    public List<Dictionary<string, object?>> Rows { get; set; } = new();
+    public int RowCount { get; set; }
+    public int ColumnCount { get; set; }
+    public double ExecutionTimeMs { get; set; }
+}
+
+public class TablesResponse
+{
+    public List<string> Tables { get; set; } = new();
+}

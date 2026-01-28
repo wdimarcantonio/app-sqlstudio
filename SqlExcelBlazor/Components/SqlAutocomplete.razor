@@ -1,0 +1,372 @@
+@using SqlExcelBlazor.Models
+@using SqlExcelBlazor.Services
+@inject IJSRuntime JS
+
+<div class="sql-autocomplete-wrapper" id="sql-autocomplete-@uniqueId">
+    <textarea class="@CssClass"
+              @ref="textareaRef"
+              value="@Value"
+              @oninput="HandleInput"
+              @onkeydown="HandleKeyDown"
+              @onfocus="OnFocus"
+              @onblur="OnBlur"
+              placeholder="@Placeholder"
+              rows="@Rows"></textarea>
+    
+    @if (showSuggestions && filteredSuggestions.Count > 0)
+    {
+        <div class="autocomplete-dropdown-simple">
+            @foreach (var (suggestion, index) in filteredSuggestions.Select((s, i) => (s, i)))
+            {
+                <div class="autocomplete-item-simple @(index == selectedIndex ? "selected" : "")"
+                     @onmousedown:preventDefault="true"
+                     @onclick="() => SelectSuggestion(suggestion)"
+                     @onmouseenter="() => selectedIndex = index">
+                    <span class="suggestion-text-simple">@suggestion</span>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string CssClass { get; set; } = "sql-editor";
+    [Parameter] public string Placeholder { get; set; } = "";
+    [Parameter] public int Rows { get; set; } = 10;
+    [Parameter] public List<DataSource> DataSources { get; set; } = new();
+
+    private ElementReference textareaRef;
+    private string uniqueId = Guid.NewGuid().ToString("N").Substring(0, 8);
+    private int lastCursorPosition = 0;
+    private int activeBracketIndex = -1; // Track which [ opened the dropdown
+
+    private bool showSuggestions = false;
+    private List<string> filteredSuggestions = new();
+    private int selectedIndex = 0;
+    private string dropdownTop = "20px";
+    private string dropdownLeft = "10px";
+
+    private async Task HandleInput(ChangeEventArgs e)
+    {
+        var newValue = e.Value?.ToString() ?? "";
+        Value = newValue;
+        await ValueChanged.InvokeAsync(newValue);
+        await OnInputChanged();
+    }
+
+    private async Task OnInputChanged()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("console.log", $"[AutoComplete] OnInputChanged, Value: '{Value}'");
+
+            // Find the last UNCLOSED [ (not just any [)
+            int lastOpenBracket = -1;
+            int openCount = 0;
+            
+            for (int i = Value.Length - 1; i >= 0; i--)
+            {
+                if (Value[i] == ']')
+                {
+                    openCount++;
+                }
+                else if (Value[i] == '[')
+                {
+                    if (openCount == 0)
+                    {
+                        // Found an unclosed [
+                        lastOpenBracket = i;
+                        break;
+                    }
+                    else
+                    {
+                        openCount--;
+                    }
+                }
+            }
+            
+            await JS.InvokeVoidAsync("console.log", $"[AutoComplete] Last unclosed [ at index: {lastOpenBracket}");
+            
+            // If no unclosed [, hide
+            if (lastOpenBracket == -1)
+            {
+                showSuggestions = false;
+                return;
+            }
+
+            // Get text after the unclosed [ until next delimiter
+            var textAfterBracket = Value.Substring(lastOpenBracket + 1);
+            
+            // Find first delimiter (space, comma, newline, closing bracket)
+            var delimiterChars = new[] { ' ', ',', '\n', '\r', '\t', ']', '(', ')' };
+            var nextDelimiter = textAfterBracket.IndexOfAny(delimiterChars);
+            
+            string searchText;
+            if (nextDelimiter >= 0)
+            {
+                searchText = textAfterBracket.Substring(0, nextDelimiter).Trim();
+            }
+            else
+            {
+                searchText = textAfterBracket.Trim();
+            }
+            
+            await JS.InvokeVoidAsync("console.log", $"[AutoComplete] Search text: '{searchText}'");
+
+            // Build suggestions
+            var suggestions = new List<string>();
+
+            // Tables
+            foreach (var ds in DataSources)
+            {
+                suggestions.Add(ds.TableAlias);
+            }
+
+            // Columns
+            foreach (var ds in DataSources)
+            {
+                foreach (var col in ds.Columns)
+                {
+                    suggestions.Add($"{ds.TableAlias}].[{col}");
+                }
+            }
+
+            // Filter
+            filteredSuggestions = suggestions
+                .Where(s => string.IsNullOrEmpty(searchText) || s.ToUpper().Contains(searchText.ToUpper()))
+                .Distinct()
+                .OrderBy(s => s)
+                .Take(8)
+                .ToList();
+
+            await JS.InvokeVoidAsync("console.log", $"[AutoComplete] Filtered: {filteredSuggestions.Count}");
+
+            showSuggestions = filteredSuggestions.Count > 0;
+            selectedIndex = 0;
+
+            if (showSuggestions)
+            {
+                activeBracketIndex = lastOpenBracket; // Save which [ opened this dropdown
+                await JS.InvokeVoidAsync("console.log", $"[AutoComplete] Showing dropdown! Active bracket at: {activeBracketIndex}");
+                StateHasChanged();
+            }
+            else
+            {
+                activeBracketIndex = -1;
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"[AutoComplete] Error: {ex.Message}");
+            showSuggestions = false;
+        }
+    }
+
+    private async Task UpdateDropdownPosition()
+    {
+        try
+        {
+            // Get cursor position in pixels
+            var result = await JS.InvokeAsync<CursorPosition>("getCursorPosition", 
+                $"#sql-autocomplete-{uniqueId} textarea");
+            
+            dropdownTop = $"{result.Top + 20}px"; // 20px sotto il cursore
+            dropdownLeft = $"{result.Left}px";
+        }
+        catch
+        {
+            // Fallback position
+            dropdownTop = "25px";
+            dropdownLeft = "10px";
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (!showSuggestions) return;
+
+        if (e.Key == "ArrowDown")
+        {
+            selectedIndex = Math.Min(selectedIndex + 1, filteredSuggestions.Count - 1);
+            await Task.CompletedTask;
+        }
+        else if (e.Key == "ArrowUp")
+        {
+            selectedIndex = Math.Max(selectedIndex - 1, 0);
+            await Task.CompletedTask;
+        }
+        else if (e.Key == "Enter" && filteredSuggestions.Count > 0)
+        {
+            await SelectSuggestion(filteredSuggestions[selectedIndex]);
+        }
+        else if (e.Key == "Escape")
+        {
+            showSuggestions = false;
+        }
+    }
+
+    private async Task SelectSuggestion(string suggestion)
+    {
+        try
+        {
+            // Use the bracket that opened this dropdown, not the last one
+            if (activeBracketIndex >= 0 && activeBracketIndex < Value.Length)
+            {
+                var textBefore = Value.Substring(0, activeBracketIndex + 1); // Include [
+                var textAfter = Value.Substring(activeBracketIndex + 1); // Everything after [
+                
+                // Remove any partial text after [ up to next delimiter
+                var delimiterChars = new[] { ' ', ',', '\n', '\r', '\t', ']', '(', ')' };
+                var nextDelimiter = textAfter.IndexOfAny(delimiterChars);
+                
+                if (nextDelimiter >= 0)
+                {
+                    textAfter = textAfter.Substring(nextDelimiter);
+                }
+                else
+                {
+                    textAfter = "";
+                }
+
+                // Check if suggestion is a column (contains ].[)
+                // Columns have format "Tabella].[Colonna" - they DON'T end with ]
+                // So we always need to add ] at the end
+                Value = textBefore + suggestion + "]" + textAfter;
+                showSuggestions = false;
+                activeBracketIndex = -1;
+                
+                await ValueChanged.InvokeAsync(Value);
+                await JS.InvokeVoidAsync("console.log", $"[AutoComplete] Inserted: '{suggestion}' -> Result: '{Value}'");
+                
+                // Restore focus to textarea
+                await Task.Delay(10);
+                await JS.InvokeVoidAsync("eval", $"document.querySelector('#sql-autocomplete-{uniqueId} textarea').focus()");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", "Autocomplete error:", ex.Message);
+        }
+    }
+
+    private void OnFocus()
+    {
+        // Niente da fare
+    }
+
+    private void OnBlur()
+    {
+        // Delay per permettere click sul dropdown
+        Task.Delay(200).ContinueWith(_ => InvokeAsync(() =>
+        {
+            showSuggestions = false;
+            StateHasChanged();
+        }));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("console.log", "[AutoComplete] Component initialized");
+            
+            // Inject JS helper for cursor position
+            await JS.InvokeVoidAsync("eval", @"
+                window.getCursorPosition = function(selector) {
+                    try {
+                        const el = document.querySelector(selector);
+                        if (!el) return { top: 0, left: 0 };
+                        
+                        const start = el.selectionStart;
+                        const text = el.value.substring(0, start);
+                        
+                        // Create mirror div
+                        const mirror = document.createElement('div');
+                        const styles = window.getComputedStyle(el);
+                        mirror.style.position = 'absolute';
+                        mirror.style.visibility = 'hidden';
+                        mirror.style.whiteSpace = 'pre-wrap';
+                        mirror.style.wordWrap = 'break-word';
+                        mirror.style.font = styles.font;
+                        mirror.style.padding = styles.padding;
+                        mirror.style.border = styles.border;
+                        mirror.style.width = el.offsetWidth + 'px';
+                        mirror.textContent = text;
+                        
+                        const span = document.createElement('span');
+                        span.textContent = '.';
+                        mirror.appendChild(span);
+                        
+                        document.body.appendChild(mirror);
+                        
+                        const rect = el.getBoundingClientRect();
+                        const spanRect = span.getBoundingClientRect();
+                        
+                        const top = spanRect.top - rect.top;
+                        const left = spanRect.left - rect.left;
+                        
+                        document.body.removeChild(mirror);
+                        
+                        return { top: top, left: left };
+                    } catch(e) {
+                        return { top: 20, left: 10 };
+                    }
+                };
+            ");
+        }
+    }
+
+    private class CursorPosition
+    {
+        public double Top { get; set; }
+        public double Left { get; set; }
+    }
+}
+
+<style>
+    .sql-autocomplete-wrapper {
+        position: relative;
+        width: 100%;
+    }
+
+    .autocomplete-dropdown-simple {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        margin-top: 2px;
+        background: white;
+        border: 2px solid #007bff;
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        max-height: 200px;
+        overflow-y: auto;
+        z-index: 9999;
+        min-width: 200px;
+        max-width: 400px;
+    }
+
+    .autocomplete-item-simple {
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+        font-size: 13px;
+        background: white;
+    }
+
+    .autocomplete-item-simple:last-child {
+        border-bottom: none;
+    }
+
+    .autocomplete-item-simple:hover,
+    .autocomplete-item-simple.selected {
+        background: #007bff;
+        color: white;
+    }
+
+    .suggestion-text-simple {
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+    }
+</style>

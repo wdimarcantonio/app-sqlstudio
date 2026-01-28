@@ -1,0 +1,14 @@
+/* Stile minimale per il layout base */
+.page {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+}
+
+main {
+    flex: 1;
+    height: 100%;
+}

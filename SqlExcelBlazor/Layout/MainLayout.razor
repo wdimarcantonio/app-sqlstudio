@@ -1,0 +1,61 @@
+﻿@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+@using SqlExcelBlazor.Services
+@inject AppState AppState
+
+<div class="page">
+    <main>
+        <ErrorBoundary>
+            <ChildContent>
+                @Body
+            </ChildContent>
+            <ErrorContent Context="ex">
+                <div class="error-boundary-alert">
+                    <h3>⚠️ Si è verificato un errore imprevisto</h3>
+                    <p>@ex.Message</p>
+                    <pre style="max-height: 200px; overflow: auto; background: rgba(0,0,0,0.2); padding: 10px;">@ex.StackTrace</pre>
+                    <button class="btn btn-primary" @onclick="() => Recover(this)">Ricarica Applicazione</button>
+                </div>
+            </ErrorContent>
+        </ErrorBoundary>
+
+        <!-- Components OUTSIDE Main but conceptually global? NO, move them inside layout structure but handled separately if needed. 
+             Ideally ToastContainer should be safe, but let's keep it here.
+             Wait, ErrorBoundary only handles errors in ChildContent. 
+             Moving ToastContainer INSIDE ChildContent of ErrorBoundary effectively.
+        -->
+    </main>
+    
+    <ErrorBoundary>
+        <ChildContent>
+             <ToastContainer />
+             @if (AppState.IsLoading)
+             {
+                 <div class="loading-overlay">
+                     <div class="spinner"></div>
+                     <p>@AppState.StatusMessage</p>
+                 </div>
+             }
+        </ChildContent>
+        <ErrorContent>
+            <!-- Silent fail for toast container errors -->
+        </ErrorContent>
+    </ErrorBoundary>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        AppState.OnChange += StateHasChanged;
+    }
+
+    private void Recover(ComponentBase component)
+    {
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
+    
+    public void Dispose()
+    {
+        AppState.OnChange -= StateHasChanged;
+    }
+}

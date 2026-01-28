@@ -1,0 +1,535 @@
+@using SqlExcelBlazor.Models
+@using SqlExcelBlazor.Services
+@inject AppState AppState
+@inject IJSRuntime JS
+
+<div class="visual-query-builder">
+    <div class="toolbar">
+        <button class="btn btn-secondary btn-sm" @onclick="AutoLayout">Autolayout</button>
+        <button class="btn btn-secondary btn-sm" @onclick="ClearBuilder">Pulisci</button>
+        
+        <div class="zoom-controls">
+            <button class="btn btn-secondary btn-sm" @onclick="ZoomOut">➖</button>
+            <span class="zoom-level">@((zoomLevel * 100).ToString("0"))%</span>
+            <button class="btn btn-secondary btn-sm" @onclick="ZoomIn">➕</button>
+            <button class="btn btn-secondary btn-sm" @onclick="ResetZoom">Reset</button>
+        </div>
+        
+        <span class="toolbar-info">Trascina sfondo per muovere (Pan). Scroll per zoom.</span>
+    </div>
+
+    <!-- Canvas Container: Fixed overflow -->
+    <div class="canvas-container" 
+         @onwheel="OnWheel"
+         @onwheel:preventDefault="true"
+         @onmousedown="OnMouseDownCanvas"
+         @onmousemove="OnMouseMove" 
+         @onmouseup="OnMouseUp"
+         style="cursor: @(isPanning ? "grabbing" : "grab")">
+        
+        <svg width="100%" height="100%">
+            <defs>
+                <marker id="arrow-mid" markerWidth="10" markerHeight="10" refX="5" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L0,6 L9,3 z" fill="#2196F3" />
+                </marker>
+                <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                    <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#333" stroke-width="0.5"/>
+                </pattern>
+            </defs>
+            
+                <!-- Transform Group per Pan e Zoom -->
+                <g transform="translate(@panX.ToString(System.Globalization.CultureInfo.InvariantCulture), @panY.ToString(System.Globalization.CultureInfo.InvariantCulture)) scale(@zoomLevel.ToString(System.Globalization.CultureInfo.InvariantCulture))">
+                
+                <!-- Grid Background -->
+                <!-- Nota: Rect enorme per coprire l'area zoomabile virtuale -->
+                <rect x="-5000" y="-5000" width="10000" height="10000" fill="url(#grid)" />
+                
+                <!-- Links -->
+                @foreach (var link in AppState.VisualLinks)
+                {
+                    <g class="link-group" @ondblclick="() => EditLink(link)" @onclick:stopPropagation="true">
+                        <path d="@GetLinkPath(link)" 
+                              stroke="@GetLinkColor(link)" 
+                              stroke-width="@((2 / zoomLevel).ToString(System.Globalization.CultureInfo.InvariantCulture))" 
+                              fill="none" 
+                              marker-mid="url(#arrow-mid)"
+                              class="link-path" />
+                        
+                        <!-- Hit Overlay -->
+                        <path d="@GetLinkPath(link)" 
+                              stroke="transparent" 
+                              stroke-width="@((15 / zoomLevel).ToString(System.Globalization.CultureInfo.InvariantCulture))" 
+                              fill="none" 
+                              class="link-hit-area" />
+                              
+                        <!-- Label Join -->
+                         @if (link.Type != JoinType.Inner) {
+                            <rect x="@GetLinkMidX(link).ToString(System.Globalization.CultureInfo.InvariantCulture)" y="@GetLinkMidY(link).ToString(System.Globalization.CultureInfo.InvariantCulture)" width="36" height="18" rx="4" fill="#2D2D2D" stroke="@GetLinkColor(link)" />
+                            @:<text x="@((GetLinkMidX(link) + 18).ToString(System.Globalization.CultureInfo.InvariantCulture))" y="@((GetLinkMidY(link) + 12).ToString(System.Globalization.CultureInfo.InvariantCulture))" text-anchor="middle" font-size="10" fill="white">@link.Type.ToString().ToUpper()</text>
+                         }
+                    </g>
+                }
+                
+                <!-- Preview Line -->
+                @if (isConnecting)
+                {
+                    <!-- MouseX/Y sono già in coordinate trasformate (scala/pan) -->
+                    <line x1="@dragStartX.ToString(System.Globalization.CultureInfo.InvariantCulture)" y1="@dragStartY.ToString(System.Globalization.CultureInfo.InvariantCulture)" x2="@mouseX.ToString(System.Globalization.CultureInfo.InvariantCulture)" y2="@mouseY.ToString(System.Globalization.CultureInfo.InvariantCulture)" stroke="#2196F3" stroke-width="2" stroke-dasharray="5,5" />
+                }
+                
+                <!-- Nodes -->
+                @foreach (var node in AppState.VisualNodes)
+                {
+                    <g transform="translate(@node.X.ToString(System.Globalization.CultureInfo.InvariantCulture), @node.Y.ToString(System.Globalization.CultureInfo.InvariantCulture))">
+                        <!-- Box -->
+                        <rect width="@node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)" height="@node.Height.ToString(System.Globalization.CultureInfo.InvariantCulture)" rx="6" fill="#383838" stroke="#555" stroke-width="1" class="table-box" />
+                        
+                        <!-- Header (Drag Handle) -->
+                        <rect width="@node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)" height="30" rx="6" fill="#2D2D2D" class="table-header-bg" 
+                              @onmousedown="e => StartDragNode(node, e)" 
+                              @onmousedown:stopPropagation="true" 
+                              style="cursor: move" />
+                        <text x="10" y="20" fill="white" font-weight="bold" font-size="12" pointer-events="none">@node.DataSource.TableAlias</text>
+                        
+                        <!-- Columns (Ports) - with scrollable area -->
+                        <clipPath id="clip-@node.Id">
+                            <rect x="0" y="35" width="@node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)" height="@(node.Height - 35)" />
+                        </clipPath>
+                        
+                        <g clip-path="url(#clip-@node.Id)">
+                            @for (int i = 0; i < node.DataSource.Columns.Count; i++)
+                            {
+                                var col = node.DataSource.Columns[i];
+                                var y = 45 + (i * 24);
+                                
+                                <g class="column-row" 
+                                   @onmousedown="e => StartConnection(node, col, e)" 
+                                   @onmousedown:stopPropagation="true"
+                                   @onmouseup="e => EndConnection(node, col)"
+                                   @onmouseup:stopPropagation="true"
+                                   style="cursor: pointer">
+                                    
+                                    <rect x="0" y="@((y - 15).ToString(System.Globalization.CultureInfo.InvariantCulture))" width="@node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)" height="24" fill="transparent" class="column-hit-area" />
+                                    <circle cx="8" cy="@y" r="4" fill="#555" class="port" />
+                                    <text x="20" y="@(y + 4)" fill="#DDD" font-size="11" pointer-events="none">@col</text>
+                                    <circle cx="@((node.Width - 8).ToString(System.Globalization.CultureInfo.InvariantCulture))" cy="@y" r="4" fill="#555" class="port" />
+                                </g>
+                            }
+                        </g>
+                        
+                        <!-- Resize Handle -->
+                        <path d="M @((node.Width - 12).ToString(System.Globalization.CultureInfo.InvariantCulture)) @(node.Height.ToString(System.Globalization.CultureInfo.InvariantCulture)) L @(node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)) @((node.Height - 12).ToString(System.Globalization.CultureInfo.InvariantCulture)) L @(node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)) @(node.Height.ToString(System.Globalization.CultureInfo.InvariantCulture)) Z" 
+                              class="resize-handle"
+                              @onmousedown="e => StartResize(node, e)"
+                              @onmousedown:stopPropagation="true" />
+                    </g>
+                }
+            </g>
+        </svg>
+    </div>
+    
+    <!-- Modal (Outside SVG) -->
+    @if (editingLink != null)
+    {
+        <div class="modal-backdrop" @onclick="() => editingLink = null"></div>
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>🔗 Proprietà Join</h3>
+                    <button class="btn-close" @onclick="() => editingLink = null">✖</button>
+                </div>
+                
+                <div class="join-details">
+                    <div class="join-side">
+                        <span class="table-name">@GetTableName(editingLink.SourceTableId)</span>
+                        <span class="col-name">@editingLink.SourceColumn</span>
+                    </div>
+                    <div class="join-icon">
+                        @if (editingLink.Type == JoinType.Left) { <span>➡</span> }
+                        else if (editingLink.Type == JoinType.Right) { <span>⬅</span> }
+                        else { <span>⟷</span> }
+                    </div>
+                    <div class="join-side">
+                        <span class="table-name">@GetTableName(editingLink.TargetTableId)</span>
+                        <span class="col-name">@editingLink.TargetColumn</span>
+                    </div>
+                </div>
+
+                <h4>Tipo Join</h4>
+                <div class="join-options">
+                    <button class="join-btn @(editingLink.Type == JoinType.Inner ? "active" : "")" @onclick="() => SetJoinType(JoinType.Inner)">
+                        INNER JOIN <small>Righe corrispondenti in entrambe</small>
+                    </button>
+                    <button class="join-btn @(editingLink.Type == JoinType.Left ? "active" : "")" @onclick="() => SetJoinType(JoinType.Left)">
+                        LEFT JOIN <small>Tutte da Sx, corrispondenti da Dx</small>
+                    </button>
+                    <button class="join-btn @(editingLink.Type == JoinType.Right ? "active" : "")" @onclick="() => SetJoinType(JoinType.Right)">
+                        RIGHT JOIN <small>Tutte da Dx, corrispondenti da Sx</small>
+                    </button>
+                </div>
+                
+                 <div class="actions">
+                     <button class="btn btn-danger" @onclick="DeleteLink">🗑️ Elimina</button>
+                     <button class="btn btn-primary" @onclick="() => editingLink = null">OK</button>
+                 </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public EventCallback<string> OnQueryGenerated { get; set; }
+
+    // State is now in AppState.VisualNodes/VisualLinks
+    
+    // Viewport State (Local)
+    private double zoomLevel = 1.0;
+    private double panX = 0;
+    private double panY = 0;
+    
+    // Interaction State
+    private bool isPanning = false;
+    private double lastMouseX, lastMouseY; // Screen coords for panning
+    
+    private TableNode? draggingNode;
+    // Offset relativo al nodo (non scalato)
+    private double dragOffsetX, dragOffsetY; 
+    
+    private bool isConnecting;
+    private TableNode? connectionSourceNode;
+    private string? connectionSourceColumn;
+    private double dragStartX, dragStartY; // Transformed coords
+    private double mouseX, mouseY;         // Transformed coords
+    
+    private ConnectionLink? editingLink;
+    
+    protected override void OnInitialized()
+    {
+        AppState.OnChange += OnStateChanged;
+        RefreshNodes();
+    }
+    
+    private void OnStateChanged()
+    {
+        RefreshNodes();
+        StateHasChanged();
+    }
+    
+    private void RefreshNodes()
+    {
+        // 1. Aggiungi nuovi nodi per nuove DataSources
+        foreach (var ds in AppState.DataSources)
+        {
+            if (!AppState.VisualNodes.Any(n => n.DataSource.Id == ds.Id))
+            {
+                AppState.VisualNodes.Add(new TableNode 
+                { 
+                    DataSource = ds,
+                    X = 50 + (AppState.VisualNodes.Count * 250),
+                    Y = 50
+                });
+            }
+            else 
+            {
+                // Fix Alias Update: se l'alias cambia in DataSource, aggiorniamolo nel nodo visivo? 
+                // In realtà il nodo punta all'oggetto DataSource (ref), quindi dovrebbe aggiornarsi da solo se DataSource è la stessa istanza.
+                // Controlliamo l'instance o Id. Se l'oggetto ds in AppState viene sostituito, dobbiamo aggiornare il ref.
+                var existing = AppState.VisualNodes.First(n => n.DataSource.Id == ds.Id);
+                existing.DataSource = ds;
+            }
+        }
+        
+        // 2. Rimuovi nodi per DataSources eliminate
+        AppState.VisualNodes.RemoveAll(n => !AppState.DataSources.Any(ds => ds.Id == n.DataSource.Id));
+        
+        // 3. Pulisci link orfani
+        AppState.VisualLinks.RemoveAll(l => !AppState.VisualNodes.Any(n => n.Id == l.SourceTableId) || !AppState.VisualNodes.Any(n => n.Id == l.TargetTableId));
+        
+        GenerateSql();
+    }
+    
+    // --- ZOOM & PAN ---
+    private void ZoomIn() => zoomLevel = Math.Min(3.0, zoomLevel + 0.1);
+    private void ZoomOut() => zoomLevel = Math.Max(0.5, zoomLevel - 0.1);
+    private void ResetZoom() { zoomLevel = 1.0; panX = 0; panY = 0; }
+    
+    private void OnWheel(WheelEventArgs e)
+    {
+        // Always zoom with wheel (no modifier needed)
+        if (e.DeltaY < 0)
+            ZoomIn();
+        else
+            ZoomOut();
+    }
+
+    private void OnMouseDownCanvas(MouseEventArgs e)
+    {
+        // Start Pan solo se clicchiamo sullo sfondo (non su nodi/link gestiti da stopPropagation)
+        isPanning = true;
+        lastMouseX = e.ClientX;
+        lastMouseY = e.ClientY;
+    }
+    
+    // --- DRAG NODES ---
+    private void StartDragNode(TableNode node, MouseEventArgs e)
+    {
+        draggingNode = node;
+        resizingNode = null; // Cancel any resize
+        // Calcola offset nel sistema di coordinate trasformato
+        var mouseTransformed = ScreenToWorld(e.ClientX, e.ClientY);
+        dragOffsetX = mouseTransformed.X - node.X;
+        dragOffsetY = mouseTransformed.Y - node.Y;
+    }
+    
+    // --- RESIZE NODES ---
+    private TableNode? resizingNode;
+    private double resizeStartWidth, resizeStartHeight;
+    private double resizeStartMouseX, resizeStartMouseY;
+    
+    private void StartResize(TableNode node, MouseEventArgs e)
+    {
+        resizingNode = node;
+        draggingNode = null; // Cancel any drag
+        isConnecting = false; // Cancel any connection
+        
+        var mouseWorld = ScreenToWorld(e.ClientX, e.ClientY);
+        resizeStartWidth = node.Width;
+        resizeStartHeight = node.Height;
+        resizeStartMouseX = mouseWorld.X;
+        resizeStartMouseY = mouseWorld.Y;
+    }
+    
+    // --- CONNECTIONS ---
+    private void StartConnection(TableNode node, string column, MouseEventArgs e)
+    {
+        isConnecting = true;
+        connectionSourceNode = node;
+        connectionSourceColumn = column;
+        
+        var colIndex = node.DataSource.Columns.IndexOf(column);
+        var startX = node.X + node.Width - 8;
+        var startY = node.Y + 45 + (colIndex * 24);
+        
+        dragStartX = startX;
+        dragStartY = startY;
+        mouseX = startX;
+        mouseY = startY;
+        
+        isPanning = false; // Blocco panning
+    }
+    
+    private void EndConnection(TableNode targetNode, string targetColumn)
+    {
+        if (isConnecting && connectionSourceNode != null && connectionSourceColumn != null)
+        {
+            if (connectionSourceNode != targetNode)
+            {
+                // Create link
+                AppState.VisualLinks.Add(new ConnectionLink
+                {
+                    SourceTableId = connectionSourceNode.Id,
+                    SourceColumn = connectionSourceColumn,
+                    TargetTableId = targetNode.Id,
+                    TargetColumn = targetColumn,
+                    Type = JoinType.Inner
+                });
+                
+                GenerateSql();
+            }
+        }
+        
+        isConnecting = false;
+        connectionSourceNode = null;
+    }
+    
+    // --- MOUSE MOVE GLOBAL ---
+    private void OnMouseMove(MouseEventArgs e)
+    {
+        if (isPanning)
+        {
+            // Pan lavora su screen coords
+            double deltaX = e.ClientX - lastMouseX;
+            double deltaY = e.ClientY - lastMouseY;
+            
+            panX += deltaX;
+            panY += deltaY;
+            
+            lastMouseX = e.ClientX;
+            lastMouseY = e.ClientY;
+        }
+        else if (resizingNode != null)
+        {
+            // Resize lavora su world coords
+            var mouseWorld = ScreenToWorld(e.ClientX, e.ClientY);
+            double deltaX = mouseWorld.X - resizeStartMouseX;
+            double deltaY = mouseWorld.Y - resizeStartMouseY;
+            
+            resizingNode.Width = Math.Max(150, resizeStartWidth + deltaX);
+            resizingNode.Height = Math.Max(resizingNode.MinHeight, Math.Min(resizingNode.MaxHeight, resizeStartHeight + deltaY));
+        }
+        else if (draggingNode != null)
+        {
+            // Drag lavora su world coords
+            var mouseWorld = ScreenToWorld(e.ClientX, e.ClientY);
+            draggingNode.X = mouseWorld.X - dragOffsetX;
+            draggingNode.Y = mouseWorld.Y - dragOffsetY;
+            
+            // Force update arrows while dragging
+            StateHasChanged();
+        }
+        else if (isConnecting)
+        {
+            var mouseWorld = ScreenToWorld(e.ClientX, e.ClientY);
+            mouseX = mouseWorld.X;
+            mouseY = mouseWorld.Y;
+        }
+    }
+    
+    // --- MOUSE UP GLOBAL ---
+    private void OnMouseUp(MouseEventArgs e)
+    {
+        isPanning = false;
+        draggingNode = null;
+        resizingNode = null;
+        isConnecting = false;
+    }
+    
+    // --- COORD HELPERS ---
+    
+    private (double X, double Y) ScreenToWorld(double clientX, double clientY)
+    {
+        // Screen -> World: (Client - Pan) / Zoom
+        return ((clientX - panX) / zoomLevel, (clientY - panY) / zoomLevel);
+    }
+    
+    private void EditLink(ConnectionLink link) => editingLink = link;
+    
+    private void SetJoinType(JoinType type)
+    {
+        if (editingLink != null) { editingLink.Type = type; GenerateSql(); }
+    }
+    
+    private void DeleteLink()
+    {
+        if (editingLink != null) { AppState.VisualLinks.Remove(editingLink); editingLink = null; GenerateSql(); }
+    }
+    
+    private void AutoLayout()
+    {
+        for (int i = 0; i < AppState.VisualNodes.Count; i++)
+        {
+            AppState.VisualNodes[i].X = 50 + (i * 250);
+            AppState.VisualNodes[i].Y = 50;
+        }
+        ResetZoom();
+    }
+    
+    private void ClearBuilder()
+    {
+        AppState.VisualLinks.Clear();
+        GenerateSql();
+    }
+    
+    private void GenerateSql()
+    {
+        if (AppState.VisualNodes.Count == 0) return;
+        
+        var firstNode = AppState.VisualNodes[0];
+        // Usa l'alias della tabella (che corrisponde al nome in SQLite)
+        var fromAlias = firstNode.DataSource.TableAlias;
+        var query = $"FROM [{fromAlias}] AS [{fromAlias}]";
+        
+        var processedNodes = new HashSet<string> { firstNode.Id };
+        var queue = new Queue<TableNode>();
+        queue.Enqueue(firstNode);
+        
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            var currAlias = current.DataSource.TableAlias;
+            
+            var outgoingLinks = AppState.VisualLinks.Where(l => l.SourceTableId == current.Id && !processedNodes.Contains(l.TargetTableId)).ToList();
+            
+            foreach (var link in outgoingLinks)
+            {
+                var targetNode = AppState.VisualNodes.First(n => n.Id == link.TargetTableId);
+                var targetAlias = targetNode.DataSource.TableAlias;
+                
+                var joinTypeStr = link.Type switch
+                {
+                    JoinType.Inner => "INNER JOIN",
+                    JoinType.Left => "LEFT JOIN",
+                    JoinType.Right => "RIGHT JOIN",
+                    _ => "JOIN"
+                };
+                
+                query += $"\n{joinTypeStr} [{targetAlias}] AS [{targetAlias}] ON [{currAlias}].[{link.SourceColumn}] = [{targetAlias}].[{link.TargetColumn}]";
+                
+                processedNodes.Add(targetNode.Id);
+                queue.Enqueue(targetNode);
+            }
+        }
+        
+        OnQueryGenerated.InvokeAsync(query);
+    }
+    
+    // Helpers
+    private string GetLinkPath(ConnectionLink link)
+    {
+        var source = AppState.VisualNodes.FirstOrDefault(n => n.Id == link.SourceTableId);
+        var target = AppState.VisualNodes.FirstOrDefault(n => n.Id == link.TargetTableId);
+        
+        if (source == null || target == null) return "";
+        
+        var sIdx = source.DataSource.Columns.IndexOf(link.SourceColumn);
+        var tIdx = target.DataSource.Columns.IndexOf(link.TargetColumn);
+        if (sIdx < 0) sIdx = 0;
+        if (tIdx < 0) tIdx = 0;
+        
+        double x1 = source.X + source.Width;
+        double y1 = source.Y + 45 + (sIdx * 24);
+        
+        double x2 = target.X;
+        double y2 = target.Y + 45 + (tIdx * 24);
+        
+        double controlX = (x1 + x2) / 2;
+        // Invariant culture for path data too!
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        return $"M {x1.ToString(ci)} {y1.ToString(ci)} C {controlX.ToString(ci)} {y1.ToString(ci)}, {controlX.ToString(ci)} {y2.ToString(ci)}, {x2.ToString(ci)} {y2.ToString(ci)}";
+    }
+    
+    private string GetLinkColor(ConnectionLink link) => link.Type switch
+    {
+        JoinType.Inner => "#2196F3",
+        JoinType.Left => "#FF9800",
+        JoinType.Right => "#4CAF50",
+        _ => "#999"
+    };
+
+    private double GetLinkMidX(ConnectionLink link)
+    {
+        var source = AppState.VisualNodes.First(n => n.Id == link.SourceTableId);
+        var target = AppState.VisualNodes.First(n => n.Id == link.TargetTableId);
+        return (source.X + source.Width + target.X) / 2 - 15;
+    }
+
+    private string GetTableName(string tableId)
+    {
+        var node = AppState.VisualNodes.FirstOrDefault(n => n.Id == tableId);
+        return node?.DataSource.TableAlias ?? "Unknown";
+    }
+
+    private double GetLinkMidY(ConnectionLink link)
+    {
+        var source = AppState.VisualNodes.First(n => n.Id == link.SourceTableId);
+        var target = AppState.VisualNodes.First(n => n.Id == link.TargetTableId);
+        var sIdx = source.DataSource.Columns.IndexOf(link.SourceColumn);
+        var tIdx = target.DataSource.Columns.IndexOf(link.TargetColumn);
+        return (source.Y + 45 + (sIdx * 24) + target.Y + 45 + (tIdx * 24)) / 2 - 8;
+    }
+    
+    public void Dispose()
+    {
+        AppState.OnChange -= OnStateChanged;
+    }
+}

@@ -1,0 +1,201 @@
+@using SqlExcelBlazor.Models
+@using BlazorMonaco
+@using BlazorMonaco.Editor
+@inject IJSRuntime JS
+
+<div class="monaco-sql-editor-container">
+    <StandaloneCodeEditor @ref="editor"
+                         Id="@editorId"
+                         ConstructionOptions="EditorConstructionOptions"
+                         OnDidInit="OnEditorInit"
+                         OnDidChangeModelContent="OnContentChanged"
+                         CssClass="monaco-editor-wrapper" />
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public List<DataSource> DataSources { get; set; } = new();
+    [Parameter] public string Height { get; set; } = "300px";
+    [Parameter] public string Theme { get; set; } = "vs-dark";
+
+    private StandaloneCodeEditor? editor;
+    private string editorId = $"monaco-editor-{Guid.NewGuid():N}";
+    private bool isUpdatingFromCode = false;
+
+    private StandaloneEditorConstructionOptions EditorConstructionOptions(StandaloneCodeEditor _)
+    {
+        return new StandaloneEditorConstructionOptions
+        {
+            Language = "sql",
+            Value = Value,
+            Theme = Theme,
+            AutomaticLayout = true,
+            ScrollBeyondLastLine = false,
+            FontSize = 14,
+            LineNumbers = "on",
+            RenderWhitespace = "selection",
+            TabSize = 2,
+            InsertSpaces = true,
+            WordWrap = "on",
+            SuggestOnTriggerCharacters = true,
+            AcceptSuggestionOnEnter = "on",
+            SuggestSelection = "first",
+            Folding = true,
+            FoldingStrategy = "indentation",
+            ShowFoldingControls = "always",
+            MatchBrackets = "always",
+            AutoClosingBrackets = "always",
+            FormatOnPaste = true,
+            FormatOnType = true,
+            Minimap = new EditorMinimapOptions { Enabled = false }
+        };
+    }
+
+    private async Task OnEditorInit()
+    {
+        if (editor == null) return;
+
+        try
+        {
+            // Register SQL keywords and custom completions
+            await RegisterSqlCompletionProvider();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Monaco Editor init error: {ex.Message}");
+        }
+    }
+
+    private async Task OnContentChanged(ModelContentChangedEvent e)
+    {
+        if (isUpdatingFromCode || editor == null) return;
+
+        try
+        {
+            var newValue = await editor.GetValue();
+            Value = newValue;
+            await ValueChanged.InvokeAsync(newValue);
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Content change error: {ex.Message}");
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Update editor when Value changes from parent
+        if (editor != null && !string.IsNullOrEmpty(Value))
+        {
+            try
+            {
+                var currentValue = await editor.GetValue();
+                if (currentValue != Value)
+                {
+                    isUpdatingFromCode = true;
+                    await editor.SetValue(Value);
+                    isUpdatingFromCode = false;
+                }
+            }
+            catch { }
+        }
+    }
+
+    private async Task RegisterSqlCompletionProvider()
+    {
+        // Build suggestions list
+        var suggestions = new List<object>();
+
+        // SQL Keywords
+        var keywords = new[] {
+            "SELECT", "FROM", "WHERE", "JOIN", "INNER", "LEFT", "RIGHT", "OUTER",
+            "ON", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN", "IS", "NULL",
+            "GROUP BY", "HAVING", "ORDER BY", "ASC", "DESC", "LIMIT", "OFFSET",
+            "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "TABLE",
+            "ALTER", "DROP", "INDEX", "PRIMARY", "KEY", "FOREIGN", "REFERENCES",
+            "AS", "DISTINCT", "COUNT", "SUM", "AVG", "MIN", "MAX", "CASE", "WHEN",
+            "THEN", "ELSE", "END", "UNION", "ALL", "EXISTS"
+        };
+
+        foreach (var keyword in keywords)
+        {
+            suggestions.Add(new
+            {
+                label = keyword,
+                kind = 14, // Keyword
+                insertText = keyword,
+                detail = "SQL Keyword"
+            });
+        }
+
+        // Tables
+        foreach (var ds in DataSources)
+        {
+            suggestions.Add(new
+            {
+                label = $"[{ds.TableAlias}]",
+                kind = 7, // Class (for tables)
+                insertText = $"[{ds.TableAlias}]",
+                detail = $"Table: {ds.TableAlias}"
+            });
+
+            // Columns for each table
+            foreach (var col in ds.Columns)
+            {
+                suggestions.Add(new
+                {
+                    label = $"[{ds.TableAlias}].[{col}]",
+                    kind = 10, // Property (for columns)
+                    insertText = $"[{ds.TableAlias}].[{col}]",
+                    detail = $"Column: {col} (from {ds.TableAlias})"
+                });
+            }
+        }
+
+        // Register completion provider via JavaScript
+        var suggestionsJson = System.Text.Json.JsonSerializer.Serialize(suggestions);
+        
+        await JS.InvokeVoidAsync("eval", $@"
+            (function() {{
+                try {{
+                    if (typeof monaco !== 'undefined') {{
+                        monaco.languages.registerCompletionItemProvider('sql', {{
+                            provideCompletionItems: function(model, position) {{
+                                var suggestions = {suggestionsJson};
+                                return {{ suggestions: suggestions }};
+                            }}
+                        }});
+                        console.log('SQL completion provider registered with ' + {suggestions.Count} + ' items');
+                    }}
+                }} catch(e) {{
+                    console.error('Error registering completion provider:', e);
+                }}
+            }})();
+        ");
+    }
+}
+
+<style>
+    .monaco-sql-editor-container {
+        width: 100%;
+        border: 1px solid #444;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .monaco-editor-wrapper {
+        height: 300px;
+        width: 100%;
+    }
+
+    /* Override height if parameter is provided */
+    @if (!string.IsNullOrEmpty(Height))
+    {
+        <text>
+        .monaco-editor-wrapper {
+            height: @Height;
+        }
+        </text>
+    }
+</style>

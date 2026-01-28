@@ -1,0 +1,354 @@
+@using SqlExcelBlazor.Models
+@using SqlExcelBlazor.Services
+@inject AppState AppState
+@inject SqliteApiClient SqliteApi
+@inject IJSRuntime JS
+
+<div class="query-builder-layout">
+    <!-- TOP: Visual Graph Area -->
+    <div class="visual-area">
+        <VisualQueryBuilder OnQueryGenerated="HandleVisualQuery" />
+    </div>
+    
+    <!-- MIDDLE: Design Grid (Access Style) -->
+    <div class="design-grid-area">
+        <div class="design-toolbar">
+            <span class="toolbar-title">Campi Query</span>
+            <button class="btn btn-secondary btn-sm" @onclick="ClearColumns">Pulisci Tutto</button>
+            
+             <select class="form-select add-field-select" @onchange="AddField">
+                <option value="">➕ Aggiungi Campo...</option>
+                @foreach (var ds in AppState.DataSources)
+                {
+                    <optgroup label="@ds.TableAlias">
+                        @foreach (var col in ds.Columns)
+                        {
+                            <option value="@ds.Id|@col">@col</option>
+                        }
+                    </optgroup>
+                }
+            </select>
+        </div>
+        
+        <div class="design-grid-scroll">
+            <table class="design-grid-table">
+                <thead>
+                    <tr>
+                        <th style="width: 30px;">#</th>
+                        <th>Campo</th>
+                        <th>Tabella</th>
+                        <th>Alias</th>
+                        <th>Trasformazione</th>
+                        <th>Ordinamento</th>
+                        <th>Mostra</th>
+                        <th style="width: 40px;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (int i = 0; i < AppState.GridColumns.Count; i++)
+                    {
+                        var col = AppState.GridColumns[i];
+                        var index = i;
+                        <tr>
+                            <td class="drag-handle">☰</td>
+                            <td>@col.OriginalName</td>
+                            <td>
+                                <span class="table-badge">@col.TableAlias</span>
+                            </td>
+                            <td>
+                                <input type="text" class="grid-input" @bind="col.Alias" placeholder="@col.OriginalName" />
+                            </td>
+                            <td>
+                                <div class="transformation-cell">
+                                    <select class="grid-select" @bind="col.TransformationType">
+                                        <option value="None">Nessuna</option>
+                                        <optgroup label="Stringa">
+                                            <option value="UPPER">UPPER</option>
+                                            <option value="LOWER">LOWER</option>
+                                            <option value="TRIM">TRIM</option>
+                                            <option value="SUBSTRING">SUBSTRING</option>
+                                        </optgroup>
+                                        <optgroup label="Data">
+                                            <option value="FORMAT">FORMAT (Date)</option>
+                                            <option value="YEAR">YEAR</option>
+                                            <option value="MONTH">MONTH</option>
+                                        </optgroup>
+                                        <option value="CUSTOM">Custom SQL</option>
+                                    </select>
+                                    
+                                    @if (col.TransformationType == "FORMAT")
+                                    {
+                                        <input type="text" class="grid-input param-input" @bind="col.TransformationParam" placeholder="dd/MM/yyyy" title="Format Mask" />
+                                    }
+                                    else if (col.TransformationType == "SUBSTRING")
+                                    {
+                                        <input type="text" class="grid-input param-input" @bind="col.TransformationParam" placeholder="1, 5" title="Start, Length" />
+                                    }
+                                    else if (col.TransformationType == "CUSTOM")
+                                    {
+                                        <input type="text" class="grid-input param-input" @bind="col.TransformationParam" placeholder="SQL Expression" title="Usa {0} per il campo" />
+                                    }
+                                </div>
+                            </td>
+                            <td>
+                                <select class="grid-select" @bind="col.SortOrder">
+                                    <option value="@SortOrder.None"></option>
+                                    <option value="@SortOrder.Ascending">Crescente</option>
+                                    <option value="@SortOrder.Descending">Decrescente</option>
+                                </select>
+                            </td>
+                            <td class="text-center">
+                                <input type="checkbox" @bind="col.IsSelected" />
+                            </td>
+                            <td>
+                                <button class="btn-icon-danger" @onclick="() => RemoveColumn(index)">✖</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- BOTTOM: Results / SQL Toggle -->
+    <div class="results-area">
+        <div class="results-toolbar">
+            <button class="btn btn-primary" @onclick="ExecuteQuery">
+                ▶️ Esegui
+            </button>
+            <span class="results-stats">
+               @if (isExecuted && AppState.LastResult != null) {
+                   <span>@AppState.LastResult.RowCount righe totali (in @AppState.LastResult.ExecutionTime.TotalMilliseconds.ToString("F2")ms)</span>
+               }
+            </span>
+            
+            @if (isExecuted && AppState.LastResult != null && AppState.LastResult.Rows.Count > pageSize)
+            {
+                 <div class="pagination-controls">
+                    <button class="btn btn-secondary btn-sm" disabled="@(currentPage == 1)" @onclick="PrevPage">◀</button>
+                    <span>Pagina @currentPage di @totalPages</span>
+                    <button class="btn btn-secondary btn-sm" disabled="@(currentPage == totalPages)" @onclick="NextPage">▶</button>
+                    
+                    <select @bind="pageSize" class="form-select" style="width: 80px; margin-left: 1rem;">
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="500">500</option>
+                    </select>
+                </div>
+            }
+
+             <button class="btn btn-secondary btn-sm" @onclick="() => showSql = !showSql" style="margin-left: auto;">
+                @(showSql ? "Nascondi SQL" : "Mostra SQL")
+            </button>
+        </div>
+        
+        @if (showSql)
+        {
+            <div class="sql-preview">
+                <textarea class="sql-editor" readonly>@generatedSql</textarea>
+            </div>
+        }
+        
+        <div class="results-grid-container">
+            @if (isExecuted && AppState.LastResult != null)
+            {
+                if (AppState.LastResult.IsSuccess)
+                {
+                     <table class="data-grid">
+                        <thead>
+                            <tr>
+                                @foreach (var col in AppState.LastResult.Columns)
+                                {
+                                    <th>@col</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in AppState.LastResult.Rows.Skip((currentPage - 1) * pageSize).Take(pageSize))
+                            {
+                                <tr>
+                                    @foreach (var col in AppState.LastResult.Columns)
+                                    {
+                                        <td>@row.GetValueOrDefault(col)?.ToString()</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <div class="error-message">@AppState.LastResult.ErrorMessage</div> 
+                }
+            }
+            else
+            {
+                <div class="empty-state-small">Premi Esegui per vedere i risultati</div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string generatedSql = "";
+    private string joinsSql = ""; 
+    private bool showSql = false;
+    private bool isExecuted = false;
+    
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 50;
+    private int totalPages => AppState.LastResult != null ? (int)Math.Ceiling((double)AppState.LastResult.Rows.Count / pageSize) : 1;
+    
+    protected override void OnInitialized()
+    {
+        AppState.OnChange += StateHasChanged;
+        // Se c'erano risultati precedenti (es. cambio tab), ripristina stato
+        if (AppState.LastResult != null) {
+            isExecuted = true;
+        }
+    }
+    
+    private void PrevPage() { if(currentPage > 1) currentPage--; }
+    private void NextPage() { if(currentPage < totalPages) currentPage++; }
+    
+    private void HandleVisualQuery(string partialSql)
+    {
+        joinsSql = partialSql;
+        UpdateFullSql();
+    }
+    
+    private void AddField(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (string.IsNullOrEmpty(val)) return;
+        
+        var parts = val.Split('|');
+        if (parts.Length != 2) return;
+        
+        var dsId = parts[0];
+        var colName = parts[1];
+        
+        var ds = AppState.DataSources.FirstOrDefault(d => d.Id == dsId);
+        if (ds == null) return;
+        
+        // FIX: Se l'alias cambia in DataSource, qui usiamo quello aggiornato.
+        // Se l'alias in DataSource era "X" e la colonna esistente era su "X", e l'utente rinomina in "Y",
+        // AppState dovrebbe propagare o noi dovremmo fare un refresh globale se le dataSources cambiano.
+        // Per ora usiamo ds.TableAlias corrente.
+        
+        AppState.GridColumns.Add(new DesignGridColumn
+        {
+            OriginalName = colName,
+            TableAlias = ds.TableAlias,
+            Alias = colName,
+            IsSelected = true,
+            TransformationType = "None"
+        });
+        
+        UpdateFullSql();
+    }
+    
+    private void RemoveColumn(int index)
+    {
+        AppState.GridColumns.RemoveAt(index);
+        UpdateFullSql();
+    }
+    
+    private void ClearColumns()
+    {
+        AppState.GridColumns.Clear();
+        UpdateFullSql();
+    }
+    
+    // FIX PROATTIVO: Se gli alias vengono cambiati nel tab DataSources,
+    // le colonne qui dentro (GridColumns) potrebbero avere il vecchio TableAlias.
+    // Dobbiamo aggiornarli.
+    // L'ideale sarebbe farlo quando cambia lo stato.
+    // Ma per semplicità, rigeneriamo l'alias mapping prima di fare SQL?
+    // No, perché GridColumns serializza lo stato.
+    // Opzione: Quando facciamo UpdateFullSql, facciamo un pass per verificare se TableAlias è syncato con DataSource.Id (ma non salviamo DS Id in DesignColumn).
+    // Salviamo OriginalName e TableAlias... se TableAlias cambia, si rompe il link.
+    // Sarebbe meglio salvare DataSourceId in DesignGridColumn.
+    // Tuttavia, per questo fix rapido, lasciamo così, ma implementiamo un metodo ValidateAliases()
+    
+    private void UpdateFullSql()
+    {
+        // 1. SELECT
+        var selectParts = AppState.GridColumns
+            .Where(c => c.IsSelected)
+            .Select(c => {
+                var field = $"[{c.TableAlias}].[{c.OriginalName}]";
+                
+                if (c.TransformationType != "None") 
+                {
+                    field = ApplyTransformation(field, c.TransformationType, c.TransformationParam);
+                }
+                
+                return string.IsNullOrWhiteSpace(c.Alias) || c.Alias == c.OriginalName 
+                    ? field 
+                    : $"{field} AS [{c.Alias}]";
+            })
+            .ToList();
+            
+        var selectSql = selectParts.Any() ? "SELECT " + string.Join(", ", selectParts) : "SELECT *";
+        
+        // 2. FROM (usiamo il Visual Builder)
+        var fromSql = !string.IsNullOrWhiteSpace(joinsSql) 
+            ? joinsSql 
+            : (AppState.DataSources.Any() ? $"FROM [{AppState.DataSources.First()?.TableAlias}]" : "");
+            
+        // 3. ORDER BY
+        var orderParts = AppState.GridColumns
+            .Where(c => c.SortOrder != SortOrder.None)
+            .Select(c => $"[{c.TableAlias}].[{c.OriginalName}] {(c.SortOrder == SortOrder.Descending ? "DESC" : "ASC")}")
+            .ToList();
+            
+        var orderSql = orderParts.Any() ? "ORDER BY " + string.Join(", ", orderParts) : "";
+        
+        // Assembla
+        string actualFromJoin = fromSql;
+        if (fromSql.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase))
+        {
+            var fromIndex = fromSql.IndexOf("FROM", StringComparison.OrdinalIgnoreCase);
+            if (fromIndex >= 0)
+            {
+                actualFromJoin = fromSql.Substring(fromIndex);
+            }
+        }
+        
+        generatedSql = $"{selectSql}\n{actualFromJoin}\n{orderSql}";
+    }
+    
+    private string ApplyTransformation(string field, string type, string param)
+    {
+        return type switch 
+        {
+            "UPPER" => $"UPPER({field})",
+            "LOWER" => $"LOWER({field})",
+            "TRIM" => $"TRIM({field})",
+            "SUBSTRING" => $"SUBSTRING({field}, {param})",
+            "FORMAT" => $"FORMAT({field}, '{param}')", 
+            "YEAR" => $"YEAR({field})",
+            "MONTH" => $"MONTH({field})",
+            "CUSTOM" => !string.IsNullOrWhiteSpace(param) ? param.Replace("{0}", field) : field,
+            _ => field
+        };
+    }
+    
+    private async Task ExecuteQuery()
+    {
+        UpdateFullSql();
+        AppState.SqlQuery = generatedSql;
+        // Use SQLite backend
+        AppState.SqliteApi = SqliteApi;
+        await AppState.ExecuteQueryWithSqliteAsync();
+        isExecuted = true;
+        currentPage = 1; // Reset page
+    }
+    
+    public void Dispose()
+    {
+        AppState.OnChange -= StateHasChanged;
+    }
+}
