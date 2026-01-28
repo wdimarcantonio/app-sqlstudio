@@ -1,0 +1,776 @@
+@using SqlExcelBlazor.Models
+@using SqlExcelBlazor.Services
+@inject SqlLoadService LoadService
+@inject AppState AppState
+@inject NotificationService Notifications
+
+<div class="load-tab">
+    <h2>📤 Load Data to SQL Server</h2>
+
+    @if (AppState.LastResult == null || AppState.LastResult.Rows.Count == 0)
+    {
+        <div class="alert alert-warning">
+            ⚠️ No query results available. Please execute a query first in the "Esecuzione Query" tab.
+        </div>
+    }
+    else
+    {
+        <!-- Connection Configuration -->
+        <div class="section-card">
+            <h3>🔗 Connection Configuration</h3>
+            <div class="connection-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Server Instance</label>
+                        <input type="text" class="form-input" @bind="connection.Server" placeholder="localhost" />
+                    </div>
+                    <div class="form-group">
+                        <label>Database</label>
+                        <input type="text" class="form-input" @bind="connection.Database" placeholder="MyDatabase" />
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Authentication</label>
+                    <select class="form-select" @bind="connection.AuthType">
+                        <option value="sql">SQL Server Authentication</option>
+                        <option value="windows">Windows Authentication</option>
+                    </select>
+                </div>
+
+                @if (connection.AuthType == "sql")
+                {
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Username</label>
+                            <input type="text" class="form-input" @bind="connection.Username" />
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" class="form-input" @bind="connection.Password" />
+                        </div>
+                    </div>
+                }
+
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="trustCert" @bind="connection.TrustServerCertificate" />
+                    <label for="trustCert">Trust Server Certificate</label>
+                </div>
+
+                <button class="btn btn-primary" @onclick="TestConnection" disabled="@isTestingConnection">
+                    @if (isTestingConnection)
+                    {
+                        <span>Testing...</span>
+                    }
+                    else
+                    {
+                        <span>🔌 Test Connection</span>
+                    }
+                </button>
+
+                @if (!string.IsNullOrEmpty(connectionMessage))
+                {
+                    <div class="@(isConnected ? "alert alert-success" : "alert alert-danger")" style="margin-top: 1rem;">
+                        @connectionMessage
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (isConnected)
+        {
+            <!-- Target Table Selection -->
+            <div class="section-card">
+                <h3>📊 Target Table</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Schema</label>
+                        <input type="text" class="form-input" @bind="targetSchema" @bind:event="oninput" @onchange="OnTargetTableChanged" />
+                    </div>
+                    <div class="form-group">
+                        <label>Table Name</label>
+                        <input type="text" class="form-input" @bind="targetTable" @bind:event="oninput" @onchange="OnTargetTableChanged" />
+                    </div>
+                </div>
+
+                <button class="btn btn-secondary" @onclick="BrowseTables" disabled="@isBrowsingTables">
+                    @if (isBrowsingTables)
+                    {
+                        <span>Loading...</span>
+                    }
+                    else
+                    {
+                        <span>📋 Browse Existing Tables</span>
+                    }
+                </button>
+
+                @if (showTableBrowser && availableTables.Count > 0)
+                {
+                    <div class="table-browser">
+                        <select class="form-select" size="10" @onchange="OnTableSelected">
+                            @foreach (var table in availableTables)
+                            {
+                                <option value="@($"{table.Schema}.{table.TableName}")">@table.Schema.@table.TableName</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                @if (tableExists)
+                {
+                    <div class="alert alert-warning" style="margin-top: 1rem;">
+                        ⚠️ Table <strong>@targetSchema.@targetTable</strong> already exists!
+                    </div>
+
+                    <div class="form-group">
+                        <label>Choose Action:</label>
+                        <div class="radio-group">
+                            <label class="radio-option">
+                                <input type="radio" name="loadMode" value="@LoadMode.Append" checked="@(loadMode == LoadMode.Append)" @onchange="() => loadMode = LoadMode.Append" />
+                                <span>
+                                    <strong>Append Data</strong>
+                                    <small>Add new rows to existing table</small>
+                                </span>
+                            </label>
+                            <label class="radio-option">
+                                <input type="radio" name="loadMode" value="@LoadMode.TruncateInsert" checked="@(loadMode == LoadMode.TruncateInsert)" @onchange="() => loadMode = LoadMode.TruncateInsert" />
+                                <span>
+                                    <strong>Truncate & Insert</strong>
+                                    <small>Delete all existing data, then insert new data</small>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                }
+                else if (!string.IsNullOrEmpty(targetTable))
+                {
+                    <div class="alert alert-info" style="margin-top: 1rem;">
+                        ℹ️ Table <strong>@targetSchema.@targetTable</strong> does not exist. It will be created automatically.
+                    </div>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(targetTable))
+            {
+                <!-- Column Mapping -->
+                <div class="section-card">
+                    <h3>🔀 Column Mapping</h3>
+                    
+                    @if (tableExists && tableSchema != null)
+                    {
+                        <button class="btn btn-secondary" @onclick="AutoMapColumns" style="margin-bottom: 1rem;">
+                            ✨ Auto-Map Columns
+                        </button>
+
+                        <div class="column-mapping-grid">
+                            <div class="mapping-header">
+                                <div>Source Column (Query)</div>
+                                <div></div>
+                                <div>Target Column (Table)</div>
+                            </div>
+                            @foreach (var sourceCol in sourceColumns)
+                            {
+                                <div class="mapping-row">
+                                    <div class="source-col">@sourceCol</div>
+                                    <div class="arrow">→</div>
+                                    <div class="target-col">
+                                        <select class="form-select" @bind="columnMapping[sourceCol]">
+                                            <option value="">-- Select Target --</option>
+                                            @foreach (var targetCol in tableSchema.Columns)
+                                            {
+                                                <option value="@targetCol.Name">
+                                                    @targetCol.Name (@targetCol.DataType@(targetCol.MaxLength.HasValue ? $"({targetCol.MaxLength})" : ""))
+                                                </option>
+                                            }
+                                        </select>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info">
+                            ℹ️ New table will be created with columns matching your query results.
+                        </div>
+                        <div class="column-list">
+                            @foreach (var col in sourceColumns)
+                            {
+                                <div class="column-item">✓ @col</div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <!-- Load Options -->
+                <div class="section-card">
+                    <h3>⚙️ Load Options</h3>
+                    
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="testMode" @bind="testMode" />
+                        <label for="testMode">
+                            <strong>Test Mode</strong>
+                            <small>(Rollback after execution - no data will be persisted)</small>
+                        </label>
+                    </div>
+
+                    <div class="action-buttons">
+                        <button class="btn btn-warning" @onclick="() => ExecuteLoad(true)" disabled="@(isLoading || !CanExecuteLoad())">
+                            @if (isLoading && testMode)
+                            {
+                                <span>🧪 Testing...</span>
+                            }
+                            else
+                            {
+                                <span>🧪 Test Load</span>
+                            }
+                        </button>
+                        
+                        <button class="btn btn-success" @onclick="() => ExecuteLoad(false)" disabled="@(isLoading || !CanExecuteLoad())">
+                            @if (isLoading && !testMode)
+                            {
+                                <span>▶️ Loading...</span>
+                            }
+                            else
+                            {
+                                <span>▶️ Execute Load</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Load Results -->
+                @if (lastResult != null)
+                {
+                    <div class="section-card">
+                        <h3>📋 Load Results</h3>
+                        
+                        <div class="@(lastResult.Success ? "alert alert-success" : "alert alert-danger")">
+                            <div class="result-header">
+                                <strong>@(lastResult.Success ? "✅ Success" : "❌ Failed")</strong>
+                                @if (lastResult.WasTestMode)
+                                {
+                                    <span class="badge">TEST MODE</span>
+                                }
+                            </div>
+                            <p>@lastResult.Message</p>
+                            @if (lastResult.Success)
+                            {
+                                <p><strong>Rows Affected:</strong> @lastResult.RowsAffected.ToString("N0")</p>
+                            }
+                        </div>
+
+                        @if (lastResult.Errors.Count > 0)
+                        {
+                            <details>
+                                <summary>Error Details</summary>
+                                <pre class="error-details">@string.Join("\n", lastResult.Errors)</pre>
+                            </details>
+                        }
+                    </div>
+                }
+            }
+        }
+    }
+</div>
+
+<style>
+    .load-tab {
+        padding: 1.5rem;
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    .section-card {
+        background: #2D2D2D;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        border: 1px solid #444;
+    }
+
+    .section-card h3 {
+        margin-top: 0;
+        margin-bottom: 1rem;
+        color: #FFF;
+        font-size: 1.2rem;
+    }
+
+    .connection-form .form-row {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .form-group {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-group label {
+        margin-bottom: 0.5rem;
+        color: #DDD;
+        font-weight: 500;
+    }
+
+    .form-input, .form-select {
+        padding: 0.5rem;
+        border: 1px solid #555;
+        border-radius: 4px;
+        background: #1E1E1E;
+        color: #FFF;
+        font-size: 0.95rem;
+    }
+
+    .form-input:focus, .form-select:focus {
+        outline: none;
+        border-color: #2196F3;
+    }
+
+    .checkbox-group {
+        flex-direction: row;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .checkbox-group label {
+        margin: 0;
+        cursor: pointer;
+    }
+
+    .checkbox-group small {
+        display: block;
+        color: #AAA;
+        font-size: 0.85rem;
+    }
+
+    .alert {
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+    }
+
+    .alert-success {
+        background: #1B5E20;
+        border: 1px solid #2E7D32;
+        color: #A5D6A7;
+    }
+
+    .alert-danger {
+        background: #B71C1C;
+        border: 1px solid #C62828;
+        color: #EF9A9A;
+    }
+
+    .alert-warning {
+        background: #E65100;
+        border: 1px solid #EF6C00;
+        color: #FFCC80;
+    }
+
+    .alert-info {
+        background: #01579B;
+        border: 1px solid #0277BD;
+        color: #81D4FA;
+    }
+
+    .table-browser {
+        margin-top: 1rem;
+    }
+
+    .table-browser select {
+        width: 100%;
+        background: #1E1E1E;
+        color: #FFF;
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 0.5rem;
+    }
+
+    .radio-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-top: 0.5rem;
+    }
+
+    .radio-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 1rem;
+        background: #1E1E1E;
+        border: 2px solid #444;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .radio-option:hover {
+        border-color: #2196F3;
+        background: #252525;
+    }
+
+    .radio-option input[type="radio"] {
+        margin-top: 0.25rem;
+    }
+
+    .radio-option span {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .radio-option strong {
+        color: #FFF;
+        margin-bottom: 0.25rem;
+    }
+
+    .radio-option small {
+        color: #AAA;
+        font-size: 0.85rem;
+    }
+
+    .column-mapping-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .mapping-header {
+        display: grid;
+        grid-template-columns: 1fr 50px 1fr;
+        gap: 1rem;
+        padding: 0.75rem;
+        background: #1E1E1E;
+        border-radius: 4px;
+        font-weight: bold;
+        color: #FFF;
+    }
+
+    .mapping-row {
+        display: grid;
+        grid-template-columns: 1fr 50px 1fr;
+        gap: 1rem;
+        padding: 0.75rem;
+        background: #252525;
+        border-radius: 4px;
+        align-items: center;
+    }
+
+    .source-col {
+        color: #81D4FA;
+        font-family: 'Courier New', monospace;
+    }
+
+    .arrow {
+        text-align: center;
+        color: #666;
+        font-size: 1.2rem;
+    }
+
+    .target-col select {
+        width: 100%;
+    }
+
+    .column-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 0.5rem;
+    }
+
+    .column-item {
+        padding: 0.5rem;
+        background: #1E1E1E;
+        border-radius: 4px;
+        color: #A5D6A7;
+        font-family: 'Courier New', monospace;
+    }
+
+    .action-buttons {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+
+    .btn {
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 4px;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-primary {
+        background: #2196F3;
+        color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background: #1976D2;
+    }
+
+    .btn-secondary {
+        background: #555;
+        color: white;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+        background: #666;
+    }
+
+    .btn-warning {
+        background: #FF9800;
+        color: white;
+    }
+
+    .btn-warning:hover:not(:disabled) {
+        background: #F57C00;
+    }
+
+    .btn-success {
+        background: #4CAF50;
+        color: white;
+    }
+
+    .btn-success:hover:not(:disabled) {
+        background: #388E3C;
+    }
+
+    .result-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .badge {
+        padding: 0.25rem 0.75rem;
+        background: #FFA726;
+        color: #000;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: bold;
+    }
+
+    .error-details {
+        background: #1E1E1E;
+        padding: 1rem;
+        border-radius: 4px;
+        overflow-x: auto;
+        color: #EF9A9A;
+        font-size: 0.85rem;
+    }
+</style>
+
+@code {
+    // Connection State
+    private SqlLoadConnectionRequest connection = new();
+    private bool isConnected = false;
+    private bool isTestingConnection = false;
+    private string connectionMessage = "";
+    private string connectionString = "";
+
+    // Target Table State
+    private string targetSchema = "dbo";
+    private string targetTable = "";
+    private bool tableExists = false;
+    private TableSchemaInfo? tableSchema;
+    private LoadMode loadMode = LoadMode.Append;
+    private bool isBrowsingTables = false;
+    private bool showTableBrowser = false;
+    private List<TableSchemaInfo> availableTables = new();
+
+    // Column Mapping State
+    private Dictionary<string, string> columnMapping = new();
+    private List<string> sourceColumns = new();
+
+    // Options
+    private bool testMode = true;
+
+    // Results
+    private SqlLoadResult? lastResult;
+    private bool isLoading = false;
+
+    protected override void OnInitialized()
+    {
+        if (AppState.LastResult != null && AppState.LastResult.Columns.Count > 0)
+        {
+            sourceColumns = AppState.LastResult.Columns.ToList();
+            InitializeColumnMapping();
+        }
+    }
+
+    private void InitializeColumnMapping()
+    {
+        columnMapping.Clear();
+        foreach (var col in sourceColumns)
+        {
+            columnMapping[col] = "";
+        }
+    }
+
+    private async Task TestConnection()
+    {
+        isTestingConnection = true;
+        connectionMessage = "";
+        
+        try
+        {
+            var (success, message) = await LoadService.TestConnectionAsync(connection);
+            isConnected = success;
+            connectionMessage = message;
+            
+            if (success)
+            {
+                connectionString = LoadService.BuildConnectionString(connection);
+                Notifications.ShowSuccess("Connection successful!");
+            }
+            else
+            {
+                Notifications.ShowError($"Connection failed: {message}");
+            }
+        }
+        finally
+        {
+            isTestingConnection = false;
+        }
+    }
+
+    private async Task BrowseTables()
+    {
+        isBrowsingTables = true;
+        try
+        {
+            availableTables = await LoadService.ListTablesAsync(connectionString);
+            showTableBrowser = true;
+        }
+        finally
+        {
+            isBrowsingTables = false;
+        }
+    }
+
+    private void OnTableSelected(ChangeEventArgs e)
+    {
+        if (e.Value != null)
+        {
+            var parts = e.Value.ToString()!.Split('.');
+            if (parts.Length == 2)
+            {
+                targetSchema = parts[0];
+                targetTable = parts[1];
+                _ = OnTargetTableChanged();
+            }
+        }
+    }
+
+    private async Task OnTargetTableChanged()
+    {
+        if (string.IsNullOrWhiteSpace(targetTable))
+        {
+            tableExists = false;
+            tableSchema = null;
+            return;
+        }
+
+        tableSchema = await LoadService.GetTableSchemaAsync(connectionString, targetSchema, targetTable);
+        tableExists = tableSchema != null;
+
+        if (tableExists && tableSchema != null)
+        {
+            AutoMapColumns();
+        }
+        else
+        {
+            // New table - direct mapping
+            columnMapping.Clear();
+            foreach (var col in sourceColumns)
+            {
+                columnMapping[col] = col;
+            }
+        }
+    }
+
+    private void AutoMapColumns()
+    {
+        if (tableSchema == null) return;
+
+        columnMapping.Clear();
+        foreach (var sourceCol in sourceColumns)
+        {
+            // Try exact match first
+            var targetCol = tableSchema.Columns.FirstOrDefault(c => 
+                c.Name.Equals(sourceCol, StringComparison.OrdinalIgnoreCase));
+            
+            if (targetCol != null)
+            {
+                columnMapping[sourceCol] = targetCol.Name;
+            }
+            else
+            {
+                columnMapping[sourceCol] = "";
+            }
+        }
+
+        Notifications.ShowInfo("Columns auto-mapped by name");
+    }
+
+    private bool CanExecuteLoad()
+    {
+        if (string.IsNullOrWhiteSpace(targetTable)) return false;
+        if (tableExists && columnMapping.Values.Any(v => string.IsNullOrWhiteSpace(v))) return false;
+        return true;
+    }
+
+    private async Task ExecuteLoad(bool useTestMode)
+    {
+        isLoading = true;
+        lastResult = null;
+
+        try
+        {
+            var request = new SqlLoadRequest
+            {
+                ConnectionString = connectionString,
+                TargetSchema = targetSchema,
+                TargetTable = targetTable,
+                Mode = loadMode,
+                TestMode = useTestMode,
+                ColumnMapping = tableExists ? columnMapping : sourceColumns.ToDictionary(c => c, c => c),
+                Data = AppState.LastResult!.Rows
+            };
+
+            lastResult = await LoadService.ExecuteLoadAsync(request);
+
+            if (lastResult.Success)
+            {
+                Notifications.ShowSuccess(lastResult.Message);
+            }
+            else
+            {
+                Notifications.ShowError(lastResult.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            lastResult = new SqlLoadResult
+            {
+                Success = false,
+                Message = ex.Message,
+                Errors = new List<string> { ex.ToString() }
+            };
+            Notifications.ShowError($"Load failed: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

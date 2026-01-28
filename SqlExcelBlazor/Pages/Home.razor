@@ -32,6 +32,9 @@
         <button class="tab @(activeTab == 2 ? "active" : "")" @onclick="() => activeTab = 2">
             ▶️ Esecuzione Query
         </button>
+        <button class="tab @(activeTab == 3 ? "active" : "")" @onclick="() => activeTab = 3">
+            📤 Load
+        </button>
     </div>
 
     <!-- Tab Content -->
@@ -46,6 +49,9 @@
                 break;
             case 2:
                 <ExecutionTab />
+                break;
+            case 3:
+                <LoadTab />
                 break;
         }
     </div>

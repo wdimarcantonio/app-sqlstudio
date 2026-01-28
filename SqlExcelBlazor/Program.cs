@@ -17,4 +17,7 @@ builder.Services.AddSingleton<NotificationService>();
 // Registra client API SQLite
 builder.Services.AddScoped<SqliteApiClient>();
 
+// Registra SQL Load Service
+builder.Services.AddScoped<SqlLoadService>();
+
 await builder.Build().RunAsync();
