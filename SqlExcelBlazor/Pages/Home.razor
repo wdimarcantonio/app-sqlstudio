@@ -35,6 +35,9 @@
         <button class="tab @(activeTab == 3 ? "active" : "")" @onclick="() => activeTab = 3">
             📤 Load
         </button>
+        <button class="tab @(activeTab == 4 ? "active" : "")" @onclick="() => activeTab = 4">
+            📊 Data Analysis
+        </button>
     </div>
 
     <!-- Tab Content -->
@@ -52,6 +55,9 @@
                 break;
             case 3:
                 <LoadTab />
+                break;
+            case 4:
+                <SqlExcelBlazor.Pages.Analysis />
                 break;
         }
     </div>
