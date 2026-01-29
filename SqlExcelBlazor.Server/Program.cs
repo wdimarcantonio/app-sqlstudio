@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SqlExcelBlazor.Server.Data;
+using SqlExcelBlazor.Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,8 +9,8 @@ builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();
 
 // Registra SQLite Service come Singleton (una istanza per tutta l'app)
-builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.SqliteService>();
-builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
+builder.Services.AddSingleton<SqliteService>();
+builder.Services.AddSingleton<ServerExcelService>();
 
 // Configure Entity Framework with SQLite
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -18,6 +19,13 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Add HttpClient for web service calls
 builder.Services.AddHttpClient();
+
+// Register workflow services
+builder.Services.AddScoped<IWorkflowEngine, WorkflowEngine>();
+builder.Services.AddScoped<IStepExecutor, ExecuteQueryStepExecutor>();
+builder.Services.AddScoped<IStepExecutor, DataTransferStepExecutor>();
+builder.Services.AddScoped<IStepExecutor, WebServiceStepExecutor>();
+builder.Services.AddScoped<ExecuteQueryStepExecutor>();
 
 // Configura CORS per permettere chiamate dal client (in sviluppo)
 builder.Services.AddCors(options =>
@@ -30,6 +38,13 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Initialize database
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    dbContext.Database.Migrate();
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
