@@ -46,7 +46,7 @@ public class StatisticsCalculator
         var sorted = values.OrderBy(v => v).ToList();
         int count = sorted.Count;
 
-        decimal q2 = CalculateMedian(values);
+        decimal q2 = CalculateMedian(sorted);
         
         var lowerHalf = sorted.Take(count / 2).ToList();
         var upperHalf = sorted.Skip((count + 1) / 2).ToList();

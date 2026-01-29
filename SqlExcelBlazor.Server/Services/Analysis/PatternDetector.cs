@@ -10,7 +10,7 @@ public class PatternDetector
     private static readonly Regex EmailRegex = new(@"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", RegexOptions.Compiled);
     private static readonly Regex UrlRegex = new(@"^https?://", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex PhoneRegex = new(@"^[\+]?[(]?[0-9]{1,4}[)]?[-\s\.]?[(]?[0-9]{1,4}[)]?[-\s\.]?[0-9]{1,9}$", RegexOptions.Compiled);
-    private static readonly Regex PostalCodeRegex = new(@"^\d{5}(-\d{4})?$", RegexOptions.Compiled);
+    private static readonly Regex USPostalCodeRegex = new(@"^\d{5}(-\d{4})?$", RegexOptions.Compiled);
     private static readonly Regex UuidRegex = new(@"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", RegexOptions.Compiled);
     private static readonly Regex IpAddressRegex = new(@"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$", RegexOptions.Compiled);
 
@@ -24,7 +24,7 @@ public class PatternDetector
             ["Email"] = 0,
             ["URL"] = 0,
             ["Phone"] = 0,
-            ["PostalCode"] = 0,
+            ["USPostalCode"] = 0,
             ["UUID"] = 0,
             ["IPAddress"] = 0
         };
@@ -45,8 +45,8 @@ public class PatternDetector
                 patterns["IPAddress"]++;
             else if (PhoneRegex.IsMatch(trimmedValue))
                 patterns["Phone"]++;
-            else if (PostalCodeRegex.IsMatch(trimmedValue))
-                patterns["PostalCode"]++;
+            else if (USPostalCodeRegex.IsMatch(trimmedValue))
+                patterns["USPostalCode"]++;
         }
 
         return patterns;

@@ -1,6 +1,7 @@
 using SqlExcelBlazor.Server.Models.Analysis;
 using System.Data;
 using System.Diagnostics;
+using System.Collections.Concurrent;
 
 namespace SqlExcelBlazor.Server.Services.Analysis;
 
@@ -11,8 +12,8 @@ public class DataAnalyzerService : IDataAnalyzerService
 {
     private readonly SqliteService _sqliteService;
     private readonly ColumnAnalyzer _columnAnalyzer;
-    private readonly Dictionary<int, DataAnalysis> _analysisCache = new();
-    private int _nextId = 1;
+    private readonly ConcurrentDictionary<int, DataAnalysis> _analysisCache = new();
+    private int _nextId = 0;
 
     public DataAnalyzerService(SqliteService sqliteService, ColumnAnalyzer columnAnalyzer)
     {
@@ -28,6 +29,12 @@ public class DataAnalyzerService : IDataAnalyzerService
         config ??= new AnalysisConfiguration();
         var stopwatch = Stopwatch.StartNew();
 
+        // Validate table name - only allow alphanumeric, underscore, and hyphen
+        if (!System.Text.RegularExpressions.Regex.IsMatch(tableName, @"^[a-zA-Z0-9_-]+$"))
+        {
+            throw new ArgumentException("Invalid table name. Only alphanumeric characters, underscore, and hyphen are allowed.", nameof(tableName));
+        }
+
         // Get table data
         var queryResult = await _sqliteService.ExecuteQueryAsync($"SELECT * FROM [{tableName}]");
         
@@ -38,7 +45,7 @@ public class DataAnalyzerService : IDataAnalyzerService
 
         var analysis = new DataAnalysis
         {
-            Id = _nextId++,
+            Id = System.Threading.Interlocked.Increment(ref _nextId),
             SourceName = tableName,
             SourceType = "Table",
             AnalyzedAt = DateTime.UtcNow,

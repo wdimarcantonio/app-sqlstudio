@@ -63,6 +63,7 @@ public class DataAnalysisController : ControllerBase
     [HttpGet("source/{sourceName}/history")]
     public IActionResult GetAnalysisHistory(string sourceName)
     {
+        sourceName = Uri.UnescapeDataString(sourceName);
         var history = _analyzerService.GetAnalysisHistory(sourceName);
         return Ok(new { success = true, history });
     }

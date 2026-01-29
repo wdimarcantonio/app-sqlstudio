@@ -41,15 +41,16 @@ public class ColumnAnalyzer
         var nonNullValues = values.Where(v => v != null && v != DBNull.Value).Select(v => v!.ToString()!).ToList();
         
         analysis.EmptyStringCount = nonNullValues.Count(v => string.IsNullOrEmpty(v));
-        analysis.WhitespaceOnlyCount = nonNullValues.Count(v => !string.IsNullOrWhiteSpace(v) == false && !string.IsNullOrEmpty(v));
+        analysis.WhitespaceOnlyCount = nonNullValues.Count(v => !string.IsNullOrEmpty(v) && string.IsNullOrWhiteSpace(v));
         analysis.UniqueCount = nonNullValues.Distinct().Count();
 
         // Percentages
         analysis.NullPercentage = analysis.TotalValues > 0 
             ? (decimal)analysis.NullCount / analysis.TotalValues * 100m 
             : 0m;
-        analysis.UniquePercentage = analysis.TotalValues > 0 
-            ? (decimal)analysis.UniqueCount / analysis.TotalValues * 100m 
+        int nonNullCount = analysis.TotalValues - analysis.NullCount;
+        analysis.UniquePercentage = nonNullCount > 0 
+            ? (decimal)analysis.UniqueCount / nonNullCount * 100m 
             : 0m;
         analysis.CompletenessPercentage = 100m - analysis.NullPercentage;
 
@@ -178,6 +179,12 @@ public class ColumnAnalyzer
 
     private void ComputeValueDistribution(ColumnAnalysis analysis, List<string> values, int topN)
     {
+        if (values.Count == 0)
+        {
+            analysis.ValueDistributions = new List<ValueDistribution>();
+            return;
+        }
+
         var distribution = values
             .GroupBy(v => v)
             .Select(g => new
