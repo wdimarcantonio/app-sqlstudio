@@ -29,7 +29,7 @@ public class WorkspaceManager : IWorkspaceManager
                 return workspace;
             }
 
-            _logger.LogInformation($"Creating new workspace for session {sessionId}");
+            _logger.LogInformation("Creating new workspace for session {SessionId}", sessionId);
 
             var newWorkspace = new SessionWorkspace
             {
@@ -61,19 +61,19 @@ public class WorkspaceManager : IWorkspaceManager
             _sessions.Remove(sessionId);
         }
 
-        await Task.Run(() =>
+        // Dispose delle risorse fuori dal lock
+        try
         {
-            try
-            {
-                workspace.Connection?.Close();
-                workspace.Connection?.Dispose();
-                _logger.LogInformation($"Closed workspace for session {sessionId}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error closing workspace for session {sessionId}");
-            }
-        });
+            workspace.Connection?.Close();
+            workspace.Connection?.Dispose();
+            _logger.LogInformation("Closed workspace for session {SessionId}", sessionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error closing workspace for session {SessionId}", sessionId);
+        }
+
+        await Task.CompletedTask;
     }
 
     /// <summary>

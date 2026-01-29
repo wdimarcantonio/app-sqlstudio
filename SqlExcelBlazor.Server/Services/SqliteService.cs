@@ -25,14 +25,15 @@ public class SqliteService : IDisposable
     }
 
     /// <summary>
-    /// Ottiene SessionId dal contesto HTTP (Blazor Server usa Connection.Id)
+    /// Ottiene SessionId dal contesto HTTP
     /// </summary>
     private string GetSessionId()
     {
         var httpContext = _httpContextAccessor.HttpContext;
         if (httpContext != null)
         {
-            // Blazor Server: usa SignalR Connection ID
+            // Per Blazor Server: usa Connection ID come identificatore di sessione
+            // Ogni richiesta HTTP avrà lo stesso connection ID all'interno della stessa connessione
             return httpContext.Connection.Id ?? "default";
         }
         return "default";
@@ -56,21 +57,39 @@ public class SqliteService : IDisposable
         var connection = GetConnection();
         var tables = new List<string>();
 
-        using (var cmd = new SqliteCommand(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", 
-            connection))
+        await Task.Run(() =>
         {
-            using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
+            lock (_lock)
             {
-                tables.Add(reader.GetString(0));
+                using var cmd = new SqliteCommand(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", 
+                    connection);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    tables.Add(reader.GetString(0));
+                }
             }
-        }
+        });
 
         return tables;
     }
 
-    public IReadOnlyList<string> LoadedTables => GetLoadedTablesAsync().Result;
+    public IReadOnlyList<string> LoadedTables 
+    { 
+        get
+        {
+            // Per compatibilità con codice esistente, ma è preferibile usare GetLoadedTablesAsync
+            try
+            {
+                return GetLoadedTablesAsync().GetAwaiter().GetResult();
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
+    }
 
     /// <summary>
     /// Carica un DataTable in SQLite come tabella (session-scoped)
@@ -102,7 +121,7 @@ public class SqliteService : IDisposable
             }
         });
 
-        _logger.LogInformation($"Loaded table '{tableName}' with {data.Rows.Count} rows in session {sessionId}");
+        _logger.LogInformation("Loaded table '{TableName}' with {RowCount} rows in session {SessionId}", tableName, data.Rows.Count, sessionId);
     }
 
     /// <summary>
@@ -186,14 +205,14 @@ public class SqliteService : IDisposable
                 }
             });
 
-            _logger.LogInformation($"Query executed successfully in session {sessionId}: {result.Rows.Count} rows in {result.ExecutionTimeMs:F2}ms");
+            _logger.LogInformation("Query executed successfully in session {SessionId}: {RowCount} rows in {ExecutionTimeMs:F2}ms", sessionId, result.Rows.Count, result.ExecutionTimeMs);
         }
         catch (Exception ex)
         {
             result.IsSuccess = false;
             result.ErrorMessage = ex.Message;
             
-            _logger.LogError(ex, $"Query execution failed in session {sessionId}");
+            _logger.LogError(ex, "Query execution failed in session {SessionId}", sessionId);
         }
 
         stopwatch.Stop();

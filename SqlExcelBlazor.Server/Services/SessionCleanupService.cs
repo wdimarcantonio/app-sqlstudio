@@ -24,8 +24,6 @@ public class SessionCleanupService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            await Task.Delay(_cleanupInterval, stoppingToken);
-
             try
             {
                 using var scope = _serviceProvider.CreateScope();
@@ -41,23 +39,25 @@ public class SessionCleanupService : BackgroundService
                     try
                     {
                         await workspaceManager.CloseWorkspaceAsync(workspace.SessionId);
-                        _logger.LogInformation($"Cleaned up inactive session {workspace.SessionId} (inactive for {DateTime.UtcNow - workspace.LastActivity})");
+                        _logger.LogInformation("Cleaned up inactive session {SessionId} (inactive for {InactiveDuration})", workspace.SessionId, DateTime.UtcNow - workspace.LastActivity);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, $"Failed to cleanup session {workspace.SessionId}");
+                        _logger.LogError(ex, "Failed to cleanup session {SessionId}", workspace.SessionId);
                     }
                 }
 
                 if (inactiveWorkspaces.Any())
                 {
-                    _logger.LogInformation($"Session cleanup completed: {inactiveWorkspaces.Count} sessions closed");
+                    _logger.LogInformation("Session cleanup completed: {SessionCount} sessions closed", inactiveWorkspaces.Count);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in session cleanup service");
             }
+
+            await Task.Delay(_cleanupInterval, stoppingToken);
         }
 
         _logger.LogInformation("Session Cleanup Service stopped");
