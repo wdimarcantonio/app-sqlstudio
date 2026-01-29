@@ -4,18 +4,19 @@
 :root {
     --primary: #2196F3;
     --primary-dark: #1976D2;
-    --primary-light: #64B5F6;
+    --primary-light: #BBDEFB;
     --accent: #FF4081;
-    --background: #1E1E1E;
-    --surface: #2D2D2D;
-    --card: #383838;
-    --text-primary: #FFFFFF;
-    --text-secondary: #B0B0B0;
+    --background: #F5F7FA;
+    --surface: #FFFFFF;
+    --card: #FFFFFF;
+    --text-primary: #333333;
+    --text-secondary: #666666;
     --success: #4CAF50;
     --error: #F44336;
     --warning: #FF9800;
     --border-radius: 12px;
-    --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    --shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --border-color: #E0E0E0;
 }
 
 /* Reset & Base */
@@ -579,11 +580,36 @@ body {
     max-width: 90vw;
 }
 
+.modal-lg {
+    width: 1000px;
+    max-width: 95vw;
+}
+
+.preview-grid-wrapper {
+    overflow-x: auto;
+    max-height: 400px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+    white-space: nowrap;
+    /* Force horizontal scroll for content */
+}
+
 .modal-content {
     background: var(--card);
     border-radius: var(--border-radius);
     padding: 1.5rem;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    max-height: 90vh;
+    /* Prevent modal being taller than screen */
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-body {
+    overflow-y: auto;
+    /* Allow scrolling inside modal body if needed */
+    flex: 1;
 }
 
 .modal-header {
@@ -591,6 +617,7 @@ body {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1.5rem;
+    flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -611,6 +638,40 @@ body {
     justify-content: flex-end;
     gap: 1rem;
     margin-top: 1.5rem;
+}
+
+/* Modal Fixes for Contrast */
+.modal-content {
+    background-color: #fff;
+    color: #333;
+}
+
+.tree-row,
+.table-item {
+    color: #333;
+}
+
+.tree-row:hover,
+.table-item:hover {
+    background-color: #f1f1f1;
+}
+
+.form-input,
+.form-select,
+.alias-input {
+    color: #333;
+    background-color: #fff;
+    border: 1px solid #ccc;
+}
+
+label {
+    color: #333;
+}
+
+.tree-header {
+    background-color: #f8f9fa;
+    color: #333;
+    border-bottom: 1px solid #ddd;
 }
 
 /* Tree View */
@@ -1233,3 +1294,195 @@ main {
 }
 
 /* Tab Content duplicate removed - see main definition around line ~135 */
+
+/* Advanced Data Grid */
+.advanced-grid-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.grid-toolbar {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+}
+
+.active-filters {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.filter-tag {
+    background: var(--primary-light);
+    color: var(--primary-dark);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-xs {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    font-size: 0.8rem;
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.grid-scroll-wrapper {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+}
+
+.advanced-grid {
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+    /* Critical for fixed widths */
+    min-width: 100%;
+}
+
+.advanced-grid th {
+    background: var(--surface);
+    border-bottom: 2px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+    padding: 0;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    user-select: none;
+}
+
+.th-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 100%;
+    padding: 0.5rem;
+    width: 100%;
+    position: relative;
+}
+
+.col-title {
+    flex: 1;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.col-title:hover {
+    color: var(--primary);
+}
+
+.sort-indicator {
+    font-size: 0.7rem;
+    color: var(--primary);
+}
+
+.btn-filter {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    opacity: 0.3;
+    transition: opacity 0.2s;
+    font-size: 0.9rem;
+    padding: 2px;
+}
+
+.btn-filter:hover,
+.btn-filter.active {
+    opacity: 1;
+    color: var(--primary);
+}
+
+.grid-resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 20;
+}
+
+.grid-resize-handle:hover {
+    background: var(--primary-light);
+}
+
+.advanced-grid td {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+/* Filter Menu */
+.filter-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: var(--card);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow);
+    border-radius: 6px;
+    padding: 0.75rem;
+    z-index: 100;
+    width: 250px;
+}
+
+.filter-header {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.filter-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 90;
+    background: transparent;
+}
+
+.filter-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.grid-footer {
+    padding: 0.5rem;
+    border-top: 1px solid var(--border-color);
+    background: var(--surface);
+    font-size: 0.85rem;
+}

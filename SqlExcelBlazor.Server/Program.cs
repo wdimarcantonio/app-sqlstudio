@@ -6,6 +6,7 @@ builder.Services.AddRazorPages();
 
 // Registra SQLite Service come Singleton (una istanza per tutta l'app)
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.SqliteService>();
+builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
 
 // Configura CORS per permettere chiamate dal client (in sviluppo)
 builder.Services.AddCors(options =>

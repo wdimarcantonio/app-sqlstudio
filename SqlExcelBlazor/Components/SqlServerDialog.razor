@@ -1,20 +1,22 @@
 @using SqlExcelBlazor.Models
 @using SqlExcelBlazor.Services
+@using Microsoft.AspNetCore.Components.Web.Virtualization
 @inject SqlServerClientService SqlService
 @inject AppState AppState
+@inject SqliteApiClient SqliteApi
 
 <div class="modal-backdrop" @onclick="Close"></div>
-<div class="modal-dialog">
-    <div class="modal-content">
+<div class="modal-dialog" style="max-width: 900px; width: 95%;">
+    <div class="modal-content" style="height: 80vh; display: flex; flex-direction: column;">
         <div class="modal-header">
             <h3>🔗 Connetti a SQL Server</h3>
             <button class="btn-close" @onclick="Close">✖</button>
         </div>
         
-        <div class="modal-body">
+        <div class="modal-body" style="flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 0;">
             @if (step == 1)
             {
-                <div class="connection-form">
+                <div class="connection-form" style="padding: 1rem; overflow-y: auto;">
                     <div class="form-group">
                         <label>Server Instance</label>
                         <input type="text" class="form-input" @bind="server" placeholder="es. localhost oppure 192.168.1.10" />
@@ -51,11 +53,11 @@
                         <input type="checkbox" id="trustCert" @bind="trustServerCert" />
                         <label for="trustCert" style="margin:0; cursor: pointer;">Trust Server Certificate (utile in dev)</label>
                     </div>
+                    
+                    <div class="error-text">@errorMessage</div>
                 </div>
                 
-                <div class="error-text">@errorMessage</div>
-                
-                <div class="actions">
+                 <div class="modal-footer" style="padding: 1rem; border-top: 1px solid #ddd;">
                     <button class="btn btn-primary" @onclick="Connect" disabled="@isLoading">
                         @if (isLoading) { <span>⏳ Connessione...</span> } else { <span>Connetti e Seleziona Tabelle</span> }
                     </button>
@@ -63,42 +65,56 @@
             }
             else if (step == 2)
             {
-                <div class="table-selection">
-                    <div class="search-box">
-                        <input type="text" class="form-input" @bind="searchTerm" @bind:event="oninput" placeholder="🔍 Cerca tabella..." />
+                <div class="table-selection" style="display: flex; flex-direction: column; height: 100%;">
+                    <div class="search-box" style="padding: 1rem; border-bottom: 1px solid #eee;">
+                        <input type="text" class="form-input" @bind="searchTerm" @bind:event="oninput" @onkeyup="FilterTree" placeholder="🔍 Cerca tabella..." />
                     </div>
                     
-                    <div class="schema-tree">
-                        @foreach (var schemaGroup in FilteredTables.GroupBy(t => t.Schema))
-                        {
-                            <div class="schema-group">
-                                <div class="schema-header">📂 @schemaGroup.Key</div>
-                                @foreach (var table in schemaGroup)
+                    <div class="tree-header" style="display: flex; padding: 0.5rem 1rem; background: #f8f9fa; border-bottom: 1px solid #ddd; font-weight: bold;">
+                        <div style="flex: 2;">Oggetto</div>
+                        <div style="flex: 1;">Alias (Modificabile)</div>
+                    </div>
+
+                    <div class="schema-tree" style="flex: 1; overflow-y: auto;">
+                        <Virtualize Items="@visibleItems" Context="item" ItemSize="35">
+                            <div class="tree-row @(item.IsSelected ? "selected" : "")" style="padding-left: @(item.Depth * 20)px; display: flex; align-items: center; border-bottom: 1px solid #f0f0f0; height: 35px;">
+                                @if (!item.IsLeaf)
                                 {
-                                    <div class="table-item @(table.IsSelected ? "selected" : "")">
-                                        <div class="table-check">
-                                            <input type="checkbox" @bind="table.IsSelected" id="chk_@table.FullName" />
-                                            <label for="chk_@table.FullName">
-                                                <span class="icon">@(table.Type == "VIEW" ? "👁️" : "📅")</span>
-                                                @table.Name
-                                            </label>
-                                        </div>
-                                        @if (table.IsSelected)
+                                    <span @onclick="() => ToggleExpand(item)" style="cursor: pointer; width: 20px; display: inline-block; text-align: center;">
+                                        @(item.IsExpanded ? "▼" : "▶")
+                                    </span>
+                                    <span class="icon">@(item.GroupType == "Type" ? "📁" : "📂")</span>
+                                    <span style="font-weight: 500; margin-left: 5px;">@item.Label</span>
+                                }
+                                else
+                                {
+                                    <div class="table-check" style="flex: 2; display: flex; align-items: center; margin-left: 20px;">
+                                        <input type="checkbox" @bind="item.Data.IsSelected" id="chk_@item.Data.FullName" style="margin-right: 8px;" />
+                                        <label for="chk_@item.Data.FullName" style="margin: 0; cursor: pointer; display: flex; align-items: center;">
+                                            <span class="icon" style="margin-right: 5px;">@(item.Data.Type == "VIEW" ? "👁️" : "📅")</span>
+                                            @item.Data.Name
+                                        </label>
+                                    </div>
+                                    <div style="flex: 1; padding-right: 10px;">
+                                        @if (item.Data.IsSelected)
                                         {
-                                            <input type="text" class="alias-input" @bind="table.Alias" placeholder="Alias (opzionale)" />
+                                            <input type="text" class="alias-input form-control form-control-sm" @bind="item.Data.Alias" />
                                         }
                                     </div>
                                 }
                             </div>
-                        }
+                        </Virtualize>
                     </div>
-                </div>
-                
-                <div class="actions">
-                    <button class="btn btn-secondary" @onclick="() => step = 1">⬅ Indietro</button>
-                    <button class="btn btn-primary" @onclick="ImportSelected" disabled="@(!FilteredTables.Any(t => t.IsSelected) || isLoading)">
-                        @if (isLoading) { <span>⏳ Importazione...</span> } else { <span>Importa Selezionati</span> }
-                    </button>
+                    
+                    <div class="modal-footer" style="padding: 1rem; border-top: 1px solid #ddd;">
+                        <div style="margin-right: auto;">
+                            Selezionate: @tables.Count(t => t.IsSelected)
+                        </div>
+                        <button class="btn btn-secondary" @onclick="() => step = 1">⬅ Indietro</button>
+                        <button class="btn btn-primary" @onclick="ImportSelected" disabled="@(!tables.Any(t => t.IsSelected) || isLoading)">
+                            @if (isLoading) { <span>⏳ Importazione...</span> } else { <span>Importa Selezionati</span> }
+                        </button>
+                    </div>
                 </div>
             }
         </div>
@@ -123,11 +139,188 @@
     private List<LocalSchemaItem> tables = new();
     private string searchTerm = "";
     
-    private IEnumerable<LocalSchemaItem> FilteredTables => 
-        string.IsNullOrWhiteSpace(searchTerm) 
-        ? tables 
-        : tables.Where(t => t.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) || t.Schema.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+    // Tree View State
+    private List<TreeItem> visibleItems = new();
+    private List<TreeItem> allItems = new();
+
+    private class TreeItem
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Label { get; set; } = "";
+        public int Depth { get; set; }
+        public bool IsExpanded { get; set; } // Default expanded for now?
+        public bool IsLeaf { get; set; }
+        public LocalSchemaItem? Data { get; set; }
+        public string GroupType { get; set; } = ""; // "Type", "Schema"
+        public List<TreeItem> Children { get; set; } = new();
+        public bool IsVisible { get; set; } = true;
+        
+        // Helper per stato selezione visuale (opzionale)
+        public bool IsSelected => Data?.IsSelected ?? false;
+    }
+
+    private void BuildTree()
+    {
+        allItems.Clear();
+        
+        // Group by Type (Table/View) -> Schema
+        var byType = tables.GroupBy(t => t.Type == "VIEW" ? "Viste" : "Tabelle")
+                           .OrderBy(g => g.Key);
+
+        foreach (var typeGroup in byType)
+        {
+            var typeNode = new TreeItem 
+            { 
+                Label = typeGroup.Key, 
+                Depth = 0, 
+                IsExpanded = true, 
+                IsLeaf = false,
+                GroupType = "Type"
+            };
+            allItems.Add(typeNode);
+
+            var bySchema = typeGroup.GroupBy(t => t.Schema).OrderBy(g => g.Key);
+            
+            foreach (var schemaGroup in bySchema)
+            {
+                var schemaNode = new TreeItem
+                {
+                    Label = schemaGroup.Key,
+                    Depth = 1,
+                    IsExpanded = false, // Schemas collapsed by default?
+                    IsLeaf = false,
+                    GroupType = "Schema"
+                };
+                typeNode.Children.Add(schemaNode);
+                
+                foreach (var table in schemaGroup.OrderBy(t => t.Name))
+                {
+                    // Default alias con schema
+                    if (string.IsNullOrEmpty(table.Alias))
+                    {
+                        table.Alias = $"{table.Schema}.{table.Name}";
+                    }
+                    
+                    var tableNode = new TreeItem
+                    {
+                        Label = table.Name,
+                        Depth = 2,
+                        IsLeaf = true,
+                        Data = table
+                    };
+                    schemaNode.Children.Add(tableNode);
+                }
+            }
+        }
+        
+        UpdateVisibleItems();
+    }
+
+    private void ToggleExpand(TreeItem item)
+    {
+        item.IsExpanded = !item.IsExpanded;
+        UpdateVisibleItems();
+    }
     
+    private void UpdateVisibleItems()
+    {
+        visibleItems.Clear();
+        // Flatten tree honoring expansion state
+        foreach (var node in allItems)
+        {
+            AddNodeToVisible(node);
+        }
+    }
+    
+    private void AddNodeToVisible(TreeItem node)
+    {
+        // Se c'è ricerca, mostra tutto ciò che matcha
+        bool isFiltering = !string.IsNullOrWhiteSpace(searchTerm);
+        
+        if (isFiltering)
+        {
+             // Logica semplice: se è foglia e matcha, mostra. 
+             // Se è nodo e ha figli che matchano, mostra ed espandi.
+             // Questo richiederebbe una pre-analisi. 
+             // Per ora, manteniamo la logica semplice: ricostruzione piatta
+             // Ma FilterTree viene chiamato al cambio ricerca.
+        }
+        
+        visibleItems.Add(node);
+        
+        if (node.IsExpanded)
+        {
+            foreach (var child in node.Children)
+            {
+                AddNodeToVisible(child);
+            }
+        }
+    }
+
+    private void FilterTree()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            // Reset to clean tree
+            BuildTree();
+            return;
+        }
+
+        // Filter logic: create temporary tree with matching nodes
+        visibleItems.Clear();
+        
+        var term = searchTerm.Trim();
+        
+        foreach (var typeNode in allItems)
+        {
+            // Check if any children match
+            var matchingSchemas = new List<TreeItem>();
+            foreach (var schemaNode in typeNode.Children)
+            {
+                var matchingTables = schemaNode.Children
+                    .Where(t => t.Data!.Name.Contains(term, StringComparison.OrdinalIgnoreCase) || 
+                                t.Data!.Schema.Contains(term, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                
+                if (matchingTables.Any())
+                {
+                     // Clone schema node to avoid modifying original structure state
+                     var schemaClone = new TreeItem 
+                     { 
+                         Label = schemaNode.Label, 
+                         Depth = 1, 
+                         IsExpanded = true, 
+                         IsLeaf = false, 
+                         GroupType = "Schema",
+                         Children = matchingTables // Share table nodes
+                     };
+                     matchingSchemas.Add(schemaClone);
+                }
+            }
+            
+            if (matchingSchemas.Any())
+            {
+                var typeClone = new TreeItem
+                {
+                    Label = typeNode.Label,
+                    Depth = 0,
+                    IsExpanded = true,
+                    IsLeaf = false,
+                    GroupType = "Type",
+                    Children = matchingSchemas
+                };
+                
+                // Add flat
+                visibleItems.Add(typeClone);
+                foreach (var s in matchingSchemas)
+                {
+                    visibleItems.Add(s);
+                    visibleItems.AddRange(s.Children);
+                }
+            }
+        }
+    }
+
     private void BuildConnectionString()
     {
         var parts = new List<string>();
@@ -151,7 +344,6 @@
 
     private async Task Connect()
     {
-        // Build valid connection string from form
         try 
         {
             if (string.IsNullOrWhiteSpace(server)) throw new Exception("Il campo Server è obbligatorio.");
@@ -176,9 +368,10 @@
                 Schema = i.Schema, 
                 Name = i.Name, 
                 Type = i.Type,
-                Alias = i.Name // Default alias
+                Alias = $"{i.Schema}.{i.Name}" // Default alias con schema
             }).ToList();
             
+            BuildTree();
             step = 2;
         }
         catch (Exception ex)
@@ -197,37 +390,69 @@
         try
         {
             var selected = tables.Where(t => t.IsSelected).ToList();
+            int importedCount = 0;
+
             foreach (var table in selected)
             {
                 var query = $"SELECT * FROM [{table.Schema}].[{table.Name}]";
-                // Optionally add TOP 1000 or allow user to filter? Assuming full import as per current logic.
-                
                 var result = await SqlService.ExecuteQuery(connectionString, query);
                 
+                var finalAlias = string.IsNullOrWhiteSpace(table.Alias) ? $"{table.Schema}.{table.Name}" : table.Alias;
+                
+                // 1. Update Persistent storage (SQLite)
+                if (AppState.UseSqliteBackend)
+                {
+                    var uploadResult = await SqliteApi.UploadJsonAsync(
+                        finalAlias, // Use Alias as TableName in SQLite
+                        result.Columns,
+                        result.Rows
+                    );
+                    
+                    if (!uploadResult.Success)
+                    {
+                        throw new Exception($"Errore salvataggio {table.Name}: {uploadResult.ErrorMessage}");
+                    }
+                }
+
+                // 2. Update InMemory State (AppState) -> This links the UI to the data
+                // Note: If using SQLite backend, Data property might be empty or used for preview?
+                // AppState.AddDataSource uses the Data property for local query engine.
+                // If UseSqliteBackend is true, AppState should ideally behave differently, 
+                // but for now we maintain compatibility by populating it. 
+                // However, for large tables this is memory intensive.
+                // Given the user requirement is about "importing", storing in SQLite is the key.
+                // We will create a light DataSource object.
+
+                // Convert rows to Dictionary<string, string> for DataSource compatibility
+                var displayData = result.Rows.Select(r => r.ToDictionary(k => k.Key, v => v.Value?.ToString() ?? "")).ToList();
+
                 var dataSource = new DataSource
                 {
                     Name = table.Name,
                     Type = DataSourceType.SqlServer,
-                    TableAlias = string.IsNullOrWhiteSpace(table.Alias) ? table.Name : table.Alias,
+                    TableAlias = finalAlias,
                     Columns = result.Columns,
                     RowCount = result.Rows.Count,
-                    Data = result.Rows.Select(r => r.ToDictionary(k => k.Key, v => v.Value?.ToString() ?? "")).ToList(),
+                    Data = displayData, 
                     IsLoaded = true
                 };
                 
                 AppState.AddDataSource(dataSource);
+                importedCount++;
             }
             
-            AppState.StatusMessage = $"Importate {selected.Count} tabelle da SQL Server";
+            AppState.StatusMessage = $"Importate {importedCount} tabelle da SQL Server";
             await Close();
         }
         catch (Exception ex)
         {
             errorMessage = $"Errore importazione: {ex.Message}";
+            StateHasChanged(); // Force UI update to show error
         }
         finally
         {
             isLoading = false;
+            StateHasChanged();
         }
     }
     
@@ -236,3 +461,4 @@
         await OnClose.InvokeAsync();
     }
 }
+

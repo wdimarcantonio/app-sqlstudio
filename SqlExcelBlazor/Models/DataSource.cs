@@ -13,6 +13,7 @@ public class DataSource
     public int RowCount { get; set; }
     public List<string> Columns { get; set; } = new();
     public List<Dictionary<string, string>> Data { get; set; } = new();
+    public GridState State { get; set; } = new();
 }
 
 /// <summary>

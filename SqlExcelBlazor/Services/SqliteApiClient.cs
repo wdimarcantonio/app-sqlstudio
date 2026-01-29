@@ -101,6 +101,40 @@ public class SqliteApiClient
     }
 
     /// <summary>
+    /// Carica dati JSON in SQLite
+    /// </summary>
+    public async Task<UploadResult> UploadJsonAsync(string tableName, List<string> columns, List<Dictionary<string, object?>> rows)
+    {
+        try
+        {
+            var request = new { TableName = tableName, Columns = columns, Rows = rows };
+            var response = await _httpClient.PostAsJsonAsync("api/sqlite/upload-json", request);
+            var json = await response.Content.ReadAsStringAsync();
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = JsonSerializer.Deserialize<UploadSuccessResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return new UploadResult
+                {
+                    Success = true,
+                    TableName = result?.TableName ?? "",
+                    RowCount = result?.RowCount ?? 0,
+                    Columns = result?.Columns ?? new List<string>()
+                };
+            }
+            else
+            {
+                var error = JsonSerializer.Deserialize<ErrorResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return new UploadResult { Success = false, ErrorMessage = error?.Error ?? "Errore sconosciuto" };
+            }
+        }
+        catch (Exception ex)
+        {
+            return new UploadResult { Success = false, ErrorMessage = ex.Message };
+        }
+    }
+
+    /// <summary>
     /// Esegue una query SQL sul backend
     /// </summary>
     public async Task<SqliteQueryResult> ExecuteQueryAsync(string sql)
@@ -164,9 +198,70 @@ public class SqliteApiClient
             return false;
         }
     }
+    public async Task<(Guid FileId, string FileName)> UploadTempExcelAsync(Stream fileStream, string fileName)
+    {
+         using var content = new MultipartFormDataContent();
+         using var streamContent = new StreamContent(fileStream);
+         content.Add(streamContent, "file", fileName);
+
+         var response = await _httpClient.PostAsync("api/sqlite/excel/upload-temp", content);
+         if (response.IsSuccessStatusCode)
+         {
+             var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+             if (json.TryGetProperty("fileId", out var idProp))
+             {
+                 return (Guid.Parse(idProp.GetString()!), fileName);
+             }
+         }
+         throw new Exception("Upload failed");
+    }
+
+    public async Task<List<string>> GetExcelSheetsAsync(Guid fileId)
+    {
+        return await _httpClient.GetFromJsonAsync<List<string>>($"api/sqlite/excel/sheets/{fileId}") ?? new List<string>();
+    }
+
+    public async Task<ExcelPreviewResult> PreviewExcelDataAsync(Guid fileId, string sheetName)
+    {
+         var response = await _httpClient.PostAsJsonAsync("api/sqlite/excel/preview", new { FileId = fileId, SheetName = sheetName });
+         if (response.IsSuccessStatusCode)
+         {
+             return await response.Content.ReadFromJsonAsync<ExcelPreviewResult>() ?? new ExcelPreviewResult();
+         }
+         throw new Exception("Preview failed");
+    }
+
+    public async Task<UploadResult> ImportExcelSheetAsync(Guid fileId, string sheetName, string tableName)
+    {
+        var response = await _httpClient.PostAsJsonAsync("api/sqlite/excel/import-sheet", new { FileId = fileId, SheetName = sheetName, TableName = tableName });
+         var json = await response.Content.ReadAsStringAsync();
+
+         if (response.IsSuccessStatusCode)
+         {
+             var result = JsonSerializer.Deserialize<UploadSuccessResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+             return new UploadResult
+             {
+                 Success = true,
+                 TableName = result?.TableName ?? "",
+                 RowCount = result?.RowCount ?? 0,
+                 Columns = result?.Columns ?? new List<string>()
+             };
+         }
+         else
+         {
+             var error = JsonSerializer.Deserialize<ErrorResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+             return new UploadResult { Success = false, ErrorMessage = error?.Error ?? "Errore sconosciuto" };
+         }
+    }
 }
 
 // DTOs
+public class ExcelPreviewResult
+{
+    public List<string> Columns { get; set; } = new();
+    public List<object[]> Rows { get; set; } = new(); // Changed to object[] to handle mixed types if JSON serializer supports it, or back to string? Server sends object[].
+}
+
 public class UploadResult
 {
     public bool Success { get; set; }

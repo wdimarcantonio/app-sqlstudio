@@ -35,13 +35,15 @@
                 <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
                     <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#333" stroke-width="0.5"/>
                 </pattern>
+                <clipPath id="node-clip">
+                    <!-- Dynamic check not easy in pure defs, used inline -->
+                </clipPath>
             </defs>
             
                 <!-- Transform Group per Pan e Zoom -->
                 <g transform="translate(@panX.ToString(System.Globalization.CultureInfo.InvariantCulture), @panY.ToString(System.Globalization.CultureInfo.InvariantCulture)) scale(@zoomLevel.ToString(System.Globalization.CultureInfo.InvariantCulture))">
                 
                 <!-- Grid Background -->
-                <!-- Nota: Rect enorme per coprire l'area zoomabile virtuale -->
                 <rect x="-5000" y="-5000" width="10000" height="10000" fill="url(#grid)" />
                 
                 <!-- Links -->
@@ -73,14 +75,17 @@
                 <!-- Preview Line -->
                 @if (isConnecting)
                 {
-                    <!-- MouseX/Y sono già in coordinate trasformate (scala/pan) -->
                     <line x1="@dragStartX.ToString(System.Globalization.CultureInfo.InvariantCulture)" y1="@dragStartY.ToString(System.Globalization.CultureInfo.InvariantCulture)" x2="@mouseX.ToString(System.Globalization.CultureInfo.InvariantCulture)" y2="@mouseY.ToString(System.Globalization.CultureInfo.InvariantCulture)" stroke="#2196F3" stroke-width="2" stroke-dasharray="5,5" />
                 }
                 
                 <!-- Nodes -->
                 @foreach (var node in AppState.VisualNodes)
                 {
-                    <g transform="translate(@node.X.ToString(System.Globalization.CultureInfo.InvariantCulture), @node.Y.ToString(System.Globalization.CultureInfo.InvariantCulture))">
+                    <g transform="translate(@node.X.ToString(System.Globalization.CultureInfo.InvariantCulture), @node.Y.ToString(System.Globalization.CultureInfo.InvariantCulture))"
+                       @onwheel="e => OnNodeWheel(node, e)" 
+                       @onwheel:stopPropagation="true"
+                       @onwheel:preventDefault="true">
+                        
                         <!-- Box -->
                         <rect width="@node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)" height="@node.Height.ToString(System.Globalization.CultureInfo.InvariantCulture)" rx="6" fill="#383838" stroke="#555" stroke-width="1" class="table-box" />
                         
@@ -93,35 +98,50 @@
                         
                         <!-- Columns (Ports) - with scrollable area -->
                         <clipPath id="clip-@node.Id">
-                            <rect x="0" y="35" width="@node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)" height="@(node.Height - 35)" />
+                            <rect x="0" y="35" width="@node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)" height="@(Math.Max(0, node.Height - 40))" />
                         </clipPath>
                         
                         <g clip-path="url(#clip-@node.Id)">
-                            @for (int i = 0; i < node.DataSource.Columns.Count; i++)
-                            {
-                                var col = node.DataSource.Columns[i];
-                                var y = 45 + (i * 24);
-                                
-                                <g class="column-row" 
-                                   @onmousedown="e => StartConnection(node, col, e)" 
-                                   @onmousedown:stopPropagation="true"
-                                   @onmouseup="e => EndConnection(node, col)"
-                                   @onmouseup:stopPropagation="true"
-                                   style="cursor: pointer">
+                            <g transform="translate(0, -@node.ScrollOffset)">
+                                @for (int i = 0; i < node.DataSource.Columns.Count; i++)
+                                {
+                                    var col = node.DataSource.Columns[i];
+                                    var y = 45 + (i * 24);
                                     
-                                    <rect x="0" y="@((y - 15).ToString(System.Globalization.CultureInfo.InvariantCulture))" width="@node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)" height="24" fill="transparent" class="column-hit-area" />
-                                    <circle cx="8" cy="@y" r="4" fill="#555" class="port" />
-                                    <text x="20" y="@(y + 4)" fill="#DDD" font-size="11" pointer-events="none">@col</text>
-                                    <circle cx="@((node.Width - 8).ToString(System.Globalization.CultureInfo.InvariantCulture))" cy="@y" r="4" fill="#555" class="port" />
-                                </g>
-                            }
+                                    <g class="column-row" 
+                                       @onmousedown="e => StartConnection(node, col, e)" 
+                                       @onmousedown:stopPropagation="true"
+                                       @onmouseup="e => EndConnection(node, col)"
+                                       @onmouseup:stopPropagation="true"
+                                       style="cursor: pointer">
+                                        
+                                        <rect x="0" y="@((y - 15).ToString(System.Globalization.CultureInfo.InvariantCulture))" width="@node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)" height="24" fill="transparent" class="column-hit-area" />
+                                        <circle cx="8" cy="@y" r="4" fill="#555" class="port" />
+                                        <text x="20" y="@(y + 4)" fill="#DDD" font-size="11" pointer-events="none">@col</text>
+                                        <circle cx="@((node.Width - 8).ToString(System.Globalization.CultureInfo.InvariantCulture))" cy="@y" r="4" fill="#555" class="port" />
+                                    </g>
+                                }
+                            </g>
                         </g>
+                        
+                        <!-- Scrollbar Indicator (Simple) -->
+                        @if (GetTotalContentHeight(node) > (node.Height - 35))
+                        {
+                            var trackHeight = node.Height - 40;
+                            var contentHeight = GetTotalContentHeight(node);
+                            var thumbHeight = Math.Max(20, (trackHeight / contentHeight) * trackHeight);
+                            var thumbY = 35 + ((node.ScrollOffset / (contentHeight - trackHeight)) * (trackHeight - thumbHeight));
+                            
+                            <rect x="@((node.Width - 6).ToString(System.Globalization.CultureInfo.InvariantCulture))" y="@thumbY.ToString(System.Globalization.CultureInfo.InvariantCulture)" width="4" height="@thumbHeight.ToString(System.Globalization.CultureInfo.InvariantCulture)" rx="2" fill="rgba(255,255,255,0.3)" />
+                        }
                         
                         <!-- Resize Handle -->
                         <path d="M @((node.Width - 12).ToString(System.Globalization.CultureInfo.InvariantCulture)) @(node.Height.ToString(System.Globalization.CultureInfo.InvariantCulture)) L @(node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)) @((node.Height - 12).ToString(System.Globalization.CultureInfo.InvariantCulture)) L @(node.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)) @(node.Height.ToString(System.Globalization.CultureInfo.InvariantCulture)) Z" 
                               class="resize-handle"
                               @onmousedown="e => StartResize(node, e)"
-                              @onmousedown:stopPropagation="true" />
+                              @onmousedown:stopPropagation="true"
+                              style="cursor: nwse-resize"
+                              fill="#777" />
                     </g>
                 }
             </g>
@@ -231,9 +251,6 @@
             }
             else 
             {
-                // Fix Alias Update: se l'alias cambia in DataSource, aggiorniamolo nel nodo visivo? 
-                // In realtà il nodo punta all'oggetto DataSource (ref), quindi dovrebbe aggiornarsi da solo se DataSource è la stessa istanza.
-                // Controlliamo l'instance o Id. Se l'oggetto ds in AppState viene sostituito, dobbiamo aggiornare il ref.
                 var existing = AppState.VisualNodes.First(n => n.DataSource.Id == ds.Id);
                 existing.DataSource = ds;
             }
@@ -261,10 +278,25 @@
         else
             ZoomOut();
     }
+    
+    private void OnNodeWheel(TableNode node, WheelEventArgs e)
+    {
+        var contentHeight = GetTotalContentHeight(node);
+        var visibleHeight = node.Height - 40;
+        
+        if (contentHeight <= visibleHeight) return;
+        
+        var newOffset = node.ScrollOffset + (e.DeltaY > 0 ? 24 : -24); // Scroll per row approx
+        node.ScrollOffset = Math.Max(0, Math.Min(newOffset, contentHeight - visibleHeight + 10)); // +10 padding
+    }
+    
+    private double GetTotalContentHeight(TableNode node)
+    {
+        return 10 + (node.DataSource.Columns.Count * 24); // 10 top padding + rows
+    }
 
     private void OnMouseDownCanvas(MouseEventArgs e)
     {
-        // Start Pan solo se clicchiamo sullo sfondo (non su nodi/link gestiti da stopPropagation)
         isPanning = true;
         lastMouseX = e.ClientX;
         lastMouseY = e.ClientY;
@@ -274,8 +306,7 @@
     private void StartDragNode(TableNode node, MouseEventArgs e)
     {
         draggingNode = node;
-        resizingNode = null; // Cancel any resize
-        // Calcola offset nel sistema di coordinate trasformato
+        resizingNode = null; 
         var mouseTransformed = ScreenToWorld(e.ClientX, e.ClientY);
         dragOffsetX = mouseTransformed.X - node.X;
         dragOffsetY = mouseTransformed.Y - node.Y;
@@ -289,8 +320,8 @@
     private void StartResize(TableNode node, MouseEventArgs e)
     {
         resizingNode = node;
-        draggingNode = null; // Cancel any drag
-        isConnecting = false; // Cancel any connection
+        draggingNode = null;
+        isConnecting = false;
         
         var mouseWorld = ScreenToWorld(e.ClientX, e.ClientY);
         resizeStartWidth = node.Width;
@@ -308,14 +339,15 @@
         
         var colIndex = node.DataSource.Columns.IndexOf(column);
         var startX = node.X + node.Width - 8;
-        var startY = node.Y + 45 + (colIndex * 24);
+        // Important: Account for scroll
+        var startY = node.Y + 45 + (colIndex * 24) - node.ScrollOffset;
         
         dragStartX = startX;
         dragStartY = startY;
         mouseX = startX;
         mouseY = startY;
         
-        isPanning = false; // Blocco panning
+        isPanning = false; 
     }
     
     private void EndConnection(TableNode targetNode, string targetColumn)
@@ -324,7 +356,6 @@
         {
             if (connectionSourceNode != targetNode)
             {
-                // Create link
                 AppState.VisualLinks.Add(new ConnectionLink
                 {
                     SourceTableId = connectionSourceNode.Id,
@@ -347,7 +378,6 @@
     {
         if (isPanning)
         {
-            // Pan lavora su screen coords
             double deltaX = e.ClientX - lastMouseX;
             double deltaY = e.ClientY - lastMouseY;
             
@@ -359,7 +389,6 @@
         }
         else if (resizingNode != null)
         {
-            // Resize lavora su world coords
             var mouseWorld = ScreenToWorld(e.ClientX, e.ClientY);
             double deltaX = mouseWorld.X - resizeStartMouseX;
             double deltaY = mouseWorld.Y - resizeStartMouseY;
@@ -369,12 +398,10 @@
         }
         else if (draggingNode != null)
         {
-            // Drag lavora su world coords
             var mouseWorld = ScreenToWorld(e.ClientX, e.ClientY);
             draggingNode.X = mouseWorld.X - dragOffsetX;
             draggingNode.Y = mouseWorld.Y - dragOffsetY;
             
-            // Force update arrows while dragging
             StateHasChanged();
         }
         else if (isConnecting)
@@ -385,7 +412,6 @@
         }
     }
     
-    // --- MOUSE UP GLOBAL ---
     private void OnMouseUp(MouseEventArgs e)
     {
         isPanning = false;
@@ -398,7 +424,6 @@
     
     private (double X, double Y) ScreenToWorld(double clientX, double clientY)
     {
-        // Screen -> World: (Client - Pan) / Zoom
         return ((clientX - panX) / zoomLevel, (clientY - panY) / zoomLevel);
     }
     
@@ -420,6 +445,7 @@
         {
             AppState.VisualNodes[i].X = 50 + (i * 250);
             AppState.VisualNodes[i].Y = 50;
+             AppState.VisualNodes[i].ScrollOffset = 0;
         }
         ResetZoom();
     }
@@ -487,13 +513,20 @@
         if (tIdx < 0) tIdx = 0;
         
         double x1 = source.X + source.Width;
-        double y1 = source.Y + 45 + (sIdx * 24);
+        // Adjust for scroll
+        double y1 = source.Y + 45 + (sIdx * 24) - source.ScrollOffset;
         
         double x2 = target.X;
-        double y2 = target.Y + 45 + (tIdx * 24);
+        double y2 = target.Y + 45 + (tIdx * 24) - target.ScrollOffset;
+        
+        // Clamp Y to visible area if needed? Better to let it fly to hidden point?
+        // Usually links point to actual position. Masking it might be complex visually if it goes "under" the header.
+        // For now, let it track. The clipPath is only for columns display.
+        
+        // Optionally clamp to header bottom / box bottom
+        // But links going "inside" hidden area is expected.
         
         double controlX = (x1 + x2) / 2;
-        // Invariant culture for path data too!
         var ci = System.Globalization.CultureInfo.InvariantCulture;
         return $"M {x1.ToString(ci)} {y1.ToString(ci)} C {controlX.ToString(ci)} {y1.ToString(ci)}, {controlX.ToString(ci)} {y2.ToString(ci)}, {x2.ToString(ci)} {y2.ToString(ci)}";
     }
@@ -525,7 +558,11 @@
         var target = AppState.VisualNodes.First(n => n.Id == link.TargetTableId);
         var sIdx = source.DataSource.Columns.IndexOf(link.SourceColumn);
         var tIdx = target.DataSource.Columns.IndexOf(link.TargetColumn);
-        return (source.Y + 45 + (sIdx * 24) + target.Y + 45 + (tIdx * 24)) / 2 - 8;
+        
+        var y1 = source.Y + 45 + (sIdx * 24) - source.ScrollOffset;
+        var y2 = target.Y + 45 + (tIdx * 24) - target.ScrollOffset;
+        
+        return (y1 + y2) / 2 - 8;
     }
     
     public void Dispose()

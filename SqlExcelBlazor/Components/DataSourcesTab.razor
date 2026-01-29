@@ -1,5 +1,6 @@
 @using SqlExcelBlazor.Models
 @using SqlExcelBlazor.Services
+@using SqlExcelBlazor.Components.Shared
 @inject AppState AppState
 @inject SqliteApiClient SqliteApi
 @inject IJSRuntime JS
@@ -9,11 +10,10 @@
         <!-- Lista Origini Dati -->
         <div class="card">
             <h2>📁 Origini Dati Caricate</h2>
-            
             <div class="button-group">
                 <label class="btn btn-primary file-input-label">
                     📗 Importa Excel
-                    <InputFile OnChange="HandleExcelUpload" accept=".xlsx,.xls" class="file-input" />
+                    <InputFile OnChange="HandleExcelUpload" accept=".xlsx, .xls" class="file-input" />
                 </label>
                 <label class="btn btn-secondary file-input-label">
                     📄 Importa CSV
@@ -27,6 +27,21 @@
             @if (showSqlServerDialog)
             {
                 <SqlServerDialog OnClose="() => showSqlServerDialog = false" />
+            }
+            
+            @if (showExcelDialog)
+            {
+                <ExcelImportDialog FileId="pendingExcelFileId" 
+                                   FileName="@pendingExcelFileName" 
+                                   OnImportCompleted="OnExcelImported"
+                                   OnCancel="() => showExcelDialog = false" />
+            }
+            
+            @if (showCsvDialog)
+            {
+                <CsvImportDialog FileName="@(pendingCsvFile?.Name ?? "")"
+                                 OnConfirm="OnCsvConfirmed"
+                                 OnCancel="() => showCsvDialog = false" />
             }
             
             <div class="data-sources-list">
@@ -85,34 +100,13 @@
             {
                 <p class="file-path">@AppState.SelectedDataSource.Name - [@AppState.SelectedDataSource.TableAlias]</p>
                 
-                <div class="data-grid-container">
-                    <table class="data-grid">
-                        <thead>
-                            <tr>
-                                @foreach (var col in AppState.SelectedDataSource.Columns)
-                                {
-                                    <th>@col</th>
-                                }
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var row in AppState.SelectedDataSource.Data.Take(10))
-                            {
-                                <tr>
-                                    @foreach (var col in AppState.SelectedDataSource.Columns)
-                                    {
-                                        <td>@row.GetValueOrDefault(col, "")</td>
-                                    }
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
+                <div class="grid-wrapper-host" style="height: 500px;">
+                    <AdvancedDataGrid Columns="@AppState.SelectedDataSource.Columns" 
+                                      Rows="@AppState.SelectedDataSource.Data" 
+                                      TotalCount="@AppState.SelectedDataSource.RowCount"
+                                      State="@AppState.SelectedDataSource.State"
+                                      OnStateChanged="@(s => ReloadDataSource(AppState.SelectedDataSource))" />
                 </div>
-                
-                @if (AppState.SelectedDataSource.Data.Count > 10)
-                {
-                    <p class="preview-note">Mostrate le prime 10 di @AppState.SelectedDataSource.Data.Count righe</p>
-                }
             }
             else
             {
@@ -134,16 +128,25 @@
 
 @code {
     private bool showSqlServerDialog = false;
-    private Dictionary<string, string> pendingRenames = new(); // DataSource.Id -> oldAlias
+    private bool showExcelDialog = false;
+    private bool showCsvDialog = false;
+    
+    // Excel State
+    private Guid pendingExcelFileId;
+    private string pendingExcelFileName = "";
+    
+    // CSV State
+    private IBrowserFile? pendingCsvFile;
+
+    private Dictionary<string, string> pendingRenames = new(); 
 
     private void UpdateAliasValue(DataSource ds, string newValue)
     {
         if (ds.TableAlias != newValue)
         {
-            // Track the old alias before changing
             if (!pendingRenames.ContainsKey(ds.Id))
             {
-                pendingRenames[ds.Id] = ds.TableAlias; // Save old alias
+                pendingRenames[ds.Id] = ds.TableAlias;
             }
             ds.TableAlias = newValue;
         }
@@ -151,31 +154,23 @@
 
     private async Task ApplyAliasChange(DataSource ds)
     {
-        if (!pendingRenames.TryGetValue(ds.Id, out var oldAlias))
-            return;
+        if (!pendingRenames.TryGetValue(ds.Id, out var oldAlias)) return;
 
         try
         {
             AppState.IsLoading = true;
-            AppState.StatusMessage = $"Rinomino tabella SQLite da [{oldAlias}] a [{ds.TableAlias}]...";
+            AppState.StatusMessage = $"Rinomina...";
             
             var success = await SqliteApi.RenameTableAsync(oldAlias, ds.TableAlias);
             if (success)
             {
-                await JS.InvokeVoidAsync("console.log", $"[DEBUG] Table renamed from [{oldAlias}] to [{ds.TableAlias}]");
                 pendingRenames.Remove(ds.Id);
-                AppState.StatusMessage = $"Alias aggiornato: [{ds.TableAlias}]";
+                AppState.StatusMessage = $"Alias aggiornato";
             }
             else
             {
-                await JS.InvokeVoidAsync("console.error", "[ERROR] Failed to rename table in SQLite");
-                AppState.StatusMessage = "Errore nel rinominare la tabella";
+                AppState.StatusMessage = "Errore rinomina";
             }
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("console.error", $"[ERROR] Rename failed: {ex.Message}");
-            AppState.StatusMessage = $"Errore: {ex.Message}";
         }
         finally
         {
@@ -183,6 +178,7 @@
         }
     }
 
+    // --- EXCEL ---
     private async Task HandleExcelUpload(InputFileChangeEventArgs e)
     {
         var file = e.File;
@@ -190,112 +186,150 @@
         
         try 
         {
-            await JS.InvokeVoidAsync("console.log", $"[DEBUG] Starting Excel import: {file.Name}");
-            
             AppState.IsLoading = true;
-            AppState.StatusMessage = $"Importazione {file.Name}...";
-            StateHasChanged();
+            AppState.StatusMessage = "Caricamento file...";
             
-            await JS.InvokeVoidAsync("console.log", "[DEBUG] Reading file stream...");
             using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
-            using var memoryStream = new MemoryStream();
-            await stream.CopyToAsync(memoryStream);
-            var fileBytes = memoryStream.ToArray(); // Keep bytes for reuse
+            var result = await SqliteApi.UploadTempExcelAsync(stream, file.Name);
             
-            await JS.InvokeVoidAsync("console.log", $"[DEBUG] Stream size: {fileBytes.Length} bytes");
-            await Task.Delay(50);
-            
-            // Parse locally
-            await JS.InvokeVoidAsync("console.log", "[DEBUG] Starting ParseExcelAsync...");
-            using var parseStream = new MemoryStream(fileBytes);
-            var dataSource = await AppState.ExcelService.ParseExcelAsync(parseStream, file.Name);
-            
-            await JS.InvokeVoidAsync("console.log", $"[DEBUG] Parsed {dataSource.RowCount} rows, alias: [{dataSource.TableAlias}]");
-            
-            // Add to local state
-            AppState.AddDataSource(dataSource);
-            
-            // Upload to SQLite backend with fresh stream
-            await JS.InvokeVoidAsync("console.log", $"[DEBUG] Uploading to SQLite backend as [{dataSource.TableAlias}]...");
-            using var uploadStream = new MemoryStream(fileBytes);
-            var uploadResult = await SqliteApi.UploadExcelAsync(uploadStream, file.Name, dataSource.TableAlias);
-            if (uploadResult.Success)
-            {
-                await JS.InvokeVoidAsync("console.log", $"[DEBUG] SQLite upload success: {uploadResult.RowCount} rows in [{uploadResult.TableName}]");
-            }
-            else
-            {
-                await JS.InvokeVoidAsync("console.error", $"[ERROR] SQLite upload failed: {uploadResult.ErrorMessage}");
-            }
-            
-            await JS.InvokeVoidAsync("console.log", "[DEBUG] Import completed successfully");
-            AppState.StatusMessage = $"Importato '{file.Name}' come [{dataSource.TableAlias}]: {dataSource.RowCount} righe";
+            pendingExcelFileId = result.FileId;
+            pendingExcelFileName = result.FileName;
+            showExcelDialog = true;
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("console.error", $"[ERROR] Import failed: {ex.Message}", ex.ToString());
-            AppState.StatusMessage = $"Errore: {ex.Message}";
+            await JS.InvokeVoidAsync("alert", $"Errore upload: {ex.Message}");
         }
         finally
         {
-            await JS.InvokeVoidAsync("console.log", "[DEBUG] Setting IsLoading to false");
             AppState.IsLoading = false;
-            StateHasChanged();
         }
     }
     
-    private async Task HandleCsvUpload(InputFileChangeEventArgs e)
+    private async Task OnExcelImported(UploadResult result)
     {
-        var file = e.File;
-        if (file == null) return;
-        
+        showExcelDialog = false;
+        AppState.IsLoading = true;
         try
         {
-            await JS.InvokeVoidAsync("console.log", $"[DEBUG] Starting CSV import: {file.Name}");
-            
-            AppState.IsLoading = true;
-            AppState.StatusMessage = $"Importazione {file.Name}...";
-            StateHasChanged();
-            
-            using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
-            using var memoryStream = new MemoryStream();
-            await stream.CopyToAsync(memoryStream);
-            var fileBytes = memoryStream.ToArray();
-            
-            await Task.Delay(50);
-            
-            // Parse locally
-            await JS.InvokeVoidAsync("console.log", "[DEBUG] Starting ParseCsvAsync...");
-            using var parseStream = new MemoryStream(fileBytes);
-            var dataSource = await AppState.CsvService.ParseCsvAsync(parseStream, file.Name);
-            
-            await JS.InvokeVoidAsync("console.log", $"[DEBUG] Parsed {dataSource.RowCount} rows, alias: [{dataSource.TableAlias}]");
-            AppState.AddDataSource(dataSource);
-            
-            // Upload to SQLite backend with fresh stream
-            await JS.InvokeVoidAsync("console.log", $"[DEBUG] Uploading CSV to SQLite backend as [{dataSource.TableAlias}]...");
-            using var uploadStream = new MemoryStream(fileBytes);
-            var uploadResult = await SqliteApi.UploadCsvAsync(uploadStream, file.Name, dataSource.TableAlias);
-            if (uploadResult.Success)
-            {
-                await JS.InvokeVoidAsync("console.log", $"[DEBUG] SQLite CSV upload success: {uploadResult.RowCount} rows");
-            }
-            else
-            {
-                await JS.InvokeVoidAsync("console.error", $"[ERROR] SQLite CSV upload failed: {uploadResult.ErrorMessage}");
-            }
-            
-            AppState.StatusMessage = $"Importato '{file.Name}' come [{dataSource.TableAlias}]: {dataSource.RowCount} righe";
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("console.error", $"[ERROR] CSV import failed: {ex.Message}", ex.ToString());
-            AppState.StatusMessage = $"Errore: {ex.Message}";
+            // Sync local state by fetching sample data
+            await LoadDataSourceFromBackend(result);
+            AppState.StatusMessage = $"Importato {result.TableName}";
         }
         finally
         {
             AppState.IsLoading = false;
-            StateHasChanged();
+        }
+    }
+
+    // --- CSV ---
+    private void HandleCsvUpload(InputFileChangeEventArgs e)
+    {
+        pendingCsvFile = e.File;
+        if (pendingCsvFile != null)
+        {
+            showCsvDialog = true;
+        }
+    }
+    
+    private async Task OnCsvConfirmed((string Alias, string Separator) options)
+    {
+        showCsvDialog = false;
+        if (pendingCsvFile == null) return;
+        
+        try
+        {
+            AppState.IsLoading = true;
+            AppState.StatusMessage = "Caricamento CSV...";
+            
+             using var stream = pendingCsvFile.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+             // Use MemoryStream to avoid repeated reads issues if any
+             using var ms = new MemoryStream();
+             await stream.CopyToAsync(ms);
+             ms.Position = 0;
+             
+             var result = await SqliteApi.UploadCsvAsync(ms, pendingCsvFile.Name, options.Alias, options.Separator);
+             
+             if (result.Success)
+             {
+                 await LoadDataSourceFromBackend(result);
+                 AppState.StatusMessage = $"Importato CSV: {result.TableName}";
+             }
+             else
+             {
+                 await JS.InvokeVoidAsync("alert", $"Errore CSV: {result.ErrorMessage}");
+             }
+        }
+        catch (Exception ex)
+        {
+             await JS.InvokeVoidAsync("alert", $"Errore: {ex.Message}");
+        }
+        finally
+        {
+            AppState.IsLoading = false;
+        }
+    }
+
+    // --- HELPER ---
+    private async Task LoadDataSourceFromBackend(UploadResult result)
+    {
+        var ds = new DataSource
+        {
+            Name = result.TableName,
+            Type = DataSourceType.Excel, // Or generic
+            TableAlias = result.TableName, // Typically same
+            RowCount = result.RowCount,
+            Columns = result.Columns,
+            IsLoaded = true,
+            State = new GridState() // Init fresh state
+        };
+        
+        AppState.AddDataSource(ds);
+        
+        // Initial load
+        await ReloadDataSource(ds);
+    }
+    
+    private async Task ReloadDataSource(DataSource ds)
+    {
+        AppState.IsLoading = true;
+        try 
+        {
+            var sql = $"SELECT * FROM [{ds.TableAlias}]";
+            var whereParts = new List<string>();
+            
+            foreach(var f in ds.State.Filters)
+            {
+                var val = f.Value.Replace("'", "''");
+                switch(f.Operator)
+                {
+                   case "Contains": whereParts.Add($"[{f.Column}] LIKE '%{val}%'"); break;
+                   case "Equals": whereParts.Add($"[{f.Column}] = '{val}'"); break;
+                   case "StartsWith": whereParts.Add($"[{f.Column}] LIKE '{val}%'"); break;
+                   case "EndsWith": whereParts.Add($"[{f.Column}] LIKE '%{val}'"); break;
+                   case "GreaterThan": whereParts.Add($"[{f.Column}] > '{val}'"); break;
+                   case "LessThan": whereParts.Add($"[{f.Column}] < '{val}'"); break;
+                }
+            }
+            
+            if(whereParts.Any())
+            {
+                sql += " WHERE " + string.Join(" AND ", whereParts);
+            }
+            
+            if(!string.IsNullOrEmpty(ds.State.SortColumn))
+            {
+                 sql += $" ORDER BY [{ds.State.SortColumn}] {(ds.State.SortDirection == SortDirection.Ascending ? "ASC" : "DESC")}";
+            }
+            
+            sql += " LIMIT 50";
+            
+            var result = await SqliteApi.ExecuteQueryAsync(sql);
+            ds.Data = result.Rows.Select(r => r.ToDictionary(k => k.Key, v => v.Value?.ToString() ?? "")).ToList();
+        }
+        finally
+        {
+            AppState.IsLoading = false;
         }
     }
     
@@ -304,23 +338,15 @@
         try
         {
             AppState.IsLoading = true;
-            AppState.StatusMessage = $"Rimozione {ds.Name}...";
-            
-            // Drop from SQLite
-            var success = await SqliteApi.DropTableAsync(ds.TableAlias);
-            if (success)
-            {
-                await JS.InvokeVoidAsync("console.log", $"[DEBUG] Dropped table [{ds.TableAlias}] from SQLite");
-            }
-            
-            // Remove from local state
-            AppState.RemoveDataSource(ds);
-            AppState.StatusMessage = $"Rimossa origine dati: {ds.Name}";
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("console.error", $"[ERROR] Failed to remove: {ex.Message}");
-            AppState.StatusMessage = $"Errore: {ex.Message}";
+             var success = await SqliteApi.DropTableAsync(ds.TableAlias);
+             if (success)
+             {
+                 AppState.RemoveDataSource(ds);
+             }
+             else
+             {
+                 await JS.InvokeVoidAsync("alert", "Impossibile rimuovere tabella dal db");
+             }
         }
         finally
         {
@@ -330,7 +356,7 @@
     
     private void ClearAll()
     {
-        AppState.ClearAll();
-        AppState.StatusMessage = "Tutti i dati sono stati rimossi";
+        AppState.ClearAll(); // This might need backend clear too? For now keep as is.
+        // Usually should drop all tables.
     }
 }

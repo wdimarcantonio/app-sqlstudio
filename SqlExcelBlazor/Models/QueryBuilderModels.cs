@@ -11,9 +11,11 @@ public class TableNode
     public double Width { get; set; } = 200;
     public double Height { get; set; } = 170; // Initial height for ~5 rows (30px header + 5*24px rows + 20px padding)
     
+    public double ScrollOffset { get; set; } = 0;
+    
     // Helper to get minimum height based on content
-    public double MinHeight => 50 + Math.Min(DataSource?.Columns.Count ?? 0, 2) * 24;
-    public double MaxHeight => 50 + (DataSource?.Columns.Count ?? 0) * 24;
+    public double MinHeight => 80; // Header + ~2 rows
+    public double MaxHeight => 50 +Math.Max(5, (DataSource?.Columns.Count ?? 0)) * 24;
 }
 
 public class ConnectionLink

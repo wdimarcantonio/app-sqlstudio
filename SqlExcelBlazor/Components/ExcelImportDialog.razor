@@ -1,0 +1,220 @@
+@using SqlExcelBlazor.Models
+@using SqlExcelBlazor.Services
+@inject SqliteApiClient SqliteApi
+
+<div class="modal-backdrop" @onclick="Cancel"></div>
+<div class="modal-dialog modal-lg">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>📗 Importa Excel</h3>
+            <button class="btn-close" @onclick="Cancel">✖</button>
+        </div>
+        
+        <div class="modal-body">
+            @if (isLoading)
+            {
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <p>@loadingMessage</p>
+                </div>
+            }
+            else if (step == 1) // Sheet Selection
+            {
+                <div class="form-group">
+                    <label>File Selezionato</label>
+                    <div class="file-name">@FileName</div>
+                </div>
+
+                <div class="form-group">
+                    <label>Seleziona Foglio</label>
+                    <div class="sheet-list">
+                        @foreach (var sheet in sheets)
+                        {
+                            <div class="sheet-item @(selectedSheet == sheet ? "selected" : "")" 
+                                 @onclick="() => SelectSheet(sheet)">
+                                📄 @sheet
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else if (step == 2) // Preview & Alias
+            {
+                <div class="form-group">
+                    <label>Nome Tabella (Alias)</label>
+                    <input type="text" class="form-input" @bind="tableAlias" />
+                </div>
+                
+                <div class="preview-section">
+                    <h4>Anteprima: @selectedSheet</h4>
+                    @if (previewData != null)
+                    {
+                        <div class="preview-grid-wrapper">
+                            <table class="data-grid">
+                                <thead>
+                                    <tr>
+                                        @foreach (var col in previewData.Columns)
+                                        {
+                                            <th>@col</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in previewData.Rows.Take(5))
+                                    {
+                                        <tr>
+                                            @foreach (var cell in row)
+                                            {
+                                                <td>@cell</td>
+                                            }
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="text-muted">Mostrate prime 5 righe.</div>
+                    }
+                </div>
+            }
+            
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="error-message">@errorMessage</div>
+            }
+        </div>
+        
+        <div class="modal-footer">
+            @if (step == 2)
+            {
+                <button class="btn btn-secondary" @onclick="() => step = 1">⬅ Indietro</button>
+                <button class="btn btn-primary" @onclick="ConfirmImport" disabled="@isLoading">
+                     @if (isLoading) { <span>⏳ Importazione...</span> } else { <span>Importa</span> }
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid FileId { get; set; }
+    [Parameter] public string FileName { get; set; } = "";
+    [Parameter] public EventCallback<UploadResult> OnImportCompleted { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private int step = 1;
+    private bool isLoading = false;
+    private string loadingMessage = "";
+    private string errorMessage = "";
+    
+    private List<string> sheets = new();
+    private string selectedSheet = "";
+    private string tableAlias = "";
+    
+    private ExcelPreviewResult? previewData;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSheets();
+    }
+
+    private async Task LoadSheets()
+    {
+        isLoading = true;
+        loadingMessage = "Lettura fogli...";
+        errorMessage = "";
+        try
+        {
+            sheets = await SqliteApi.GetExcelSheetsAsync(FileId);
+            if (sheets.Count == 0)
+            {
+                errorMessage = "Nessun foglio trovato nel file.";
+            }
+            else if (sheets.Count == 1)
+            {
+                // Auto-select first sheet if only one
+                await SelectSheet(sheets[0]);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Errore lettura file: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SelectSheet(string sheet)
+    {
+        selectedSheet = sheet;
+        // Auto-generate alias from sheet name if alias is empty or equals filename
+        if (string.IsNullOrEmpty(tableAlias) || tableAlias == FileName)
+        {
+             tableAlias = GenerateAlias(sheet);
+        }
+        
+        // Load preview
+        isLoading = true;
+        loadingMessage = "Caricamento anteprima...";
+        try
+        {
+            previewData = await SqliteApi.PreviewExcelDataAsync(FileId, sheet);
+            step = 2; // Go to preview
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Errore anteprima: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+    
+    private async Task ConfirmImport()
+    {
+        if (string.IsNullOrWhiteSpace(tableAlias))
+        {
+            errorMessage = "Specificare un alias.";
+            return;
+        }
+
+        isLoading = true;
+        loadingMessage = "Importazione in corso...";
+        errorMessage = "";
+        
+        try
+        {
+            var result = await SqliteApi.ImportExcelSheetAsync(FileId, selectedSheet, tableAlias);
+            if (result.Success)
+            {
+                await OnImportCompleted.InvokeAsync(result);
+            }
+            else
+            {
+                errorMessage = $"Errore importazione: {result.ErrorMessage}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Errore: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task Cancel()
+    {
+        await OnCancel.InvokeAsync();
+    }
+    
+    private string GenerateAlias(string name)
+    {
+        var alias = new string(name.Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray());
+        if (string.IsNullOrEmpty(alias)) alias = "Table";
+        return alias;
+    }
+}

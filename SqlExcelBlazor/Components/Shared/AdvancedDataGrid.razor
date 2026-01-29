@@ -1,0 +1,230 @@
+@using SqlExcelBlazor.Models
+@inject IJSRuntime JS
+
+<div class="advanced-grid-container" @onmouseup="OnMouseUp" @onmousemove="OnMouseMove">
+    <div class="grid-toolbar">
+         <!-- Active Filters Display -->
+         @if (State.Filters.Any())
+         {
+             <div class="active-filters">
+                 @foreach (var filter in State.Filters)
+                 {
+                     <span class="filter-tag">
+                         @filter.Column @GetOperatorSymbol(filter.Operator) '@filter.Value'
+                         <button class="btn-xs" @onclick="() => RemoveFilter(filter)">✖</button>
+                     </span>
+                 }
+                 <button class="btn-xs btn-link" @onclick="ClearFilters">Pulisci Filtri</button>
+             </div>
+         }
+    </div>
+
+    <div class="grid-scroll-wrapper">
+        <table class="advanced-grid">
+            <thead>
+                <tr>
+                    @foreach (var col in Columns)
+                    {
+                        var colName = col;
+                        <th style="@GetColStyle(colName)">
+                            <div class="th-content">
+                                <span class="col-title" @onclick="() => ToggleSort(colName)">
+                                    @col
+                                    @if(State.SortColumn == colName)
+                                    {
+                                        <span class="sort-indicator">@(State.SortDirection == SortDirection.Ascending ? "▲" : "▼")</span>
+                                    }
+                                </span>
+                                
+                                <button class="btn-filter @(IsFiltered(colName) ? "active" : "")" @onclick="() => ToggleFilterMenu(colName)" @onclick:stopPropagation="true">
+                                    🔍
+                                </button>
+                                
+                                @if (activeFilterColumn == colName)
+                                {
+                                    <div class="filter-menu" @onclick:stopPropagation="true">
+                                        <div class="filter-header">Filtra @colName</div>
+                                        <select @bind="pendingFilterOp" class="form-select sm">
+                                            <option value="Contains">Contiene</option>
+                                            <option value="Equals">Uguale</option>
+                                            <option value="StartsWith">Inizia con</option>
+                                            <option value="EndsWith">Finisce con</option>
+                                            <option value="GreaterThan">Maggiore di</option>
+                                            <option value="LessThan">Minore di</option>
+                                        </select>
+                                        <input type="text" @bind="pendingFilterValue" class="form-input sm" placeholder="Valore..." />
+                                        <div class="filter-actions">
+                                            <button class="btn btn-primary btn-sm" @onclick="ApplyFilter">Applica</button>
+                                            <button class="btn btn-secondary btn-sm" @onclick="() => activeFilterColumn = null">Chiudi</button>
+                                        </div>
+                                    </div>
+                                    <div class="filter-backdrop" @onclick="() => activeFilterColumn = null"></div>
+                                }
+                            </div>
+                            
+                            <div class="resize-handle" @onmousedown="e => StartResize(colName, e)" @onmousedown:stopPropagation="true"></div>
+                        </th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @if (Rows == null || Rows.Count == 0)
+                {
+                    <tr>
+                        <td colspan="@Columns.Count" class="empty-cell">Nessun dato</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var row in Rows)
+                    {
+                        <tr>
+                            @foreach (var col in Columns)
+                            {
+                                <td>@row.GetValueOrDefault(col, "")</td>
+                            }
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="grid-footer">
+        <span class="text-muted">Righe: @TotalCount | Mostrate: @(Rows?.Count ?? 0)</span>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<string> Columns { get; set; } = new();
+    [Parameter] public List<Dictionary<string, string>> Rows { get; set; } = new();
+    [Parameter] public int TotalCount { get; set; }
+    
+    [Parameter] public GridState State { get; set; } = new();
+    [Parameter] public EventCallback<GridState> OnStateChanged { get; set; }
+
+    // Resize State
+    private Dictionary<string, double> colWidths = new();
+    private bool isResizing;
+    private string? resizingCol;
+    private double startX;
+    private double startWidth;
+
+    // Filter State
+    private string? activeFilterColumn;
+    private string pendingFilterOp = "Contains";
+    private string pendingFilterValue = "";
+
+    protected override void OnInitialized()
+    {
+        // Init default widths
+        foreach(var c in Columns)
+        {
+            if(!colWidths.ContainsKey(c)) colWidths[c] = 150;
+        }
+    }
+
+    // --- SORTING ---
+    private async Task ToggleSort(string col)
+    {
+        if (State.SortColumn == col)
+        {
+            State.SortDirection = State.SortDirection == SortDirection.Ascending ? SortDirection.Descending : SortDirection.Ascending;
+        }
+        else
+        {
+            State.SortColumn = col;
+            State.SortDirection = SortDirection.Ascending;
+        }
+        await OnStateChanged.InvokeAsync(State);
+    }
+
+    // --- RESIZING ---
+    private void StartResize(string col, MouseEventArgs e)
+    {
+        isResizing = true;
+        resizingCol = col;
+        startX = e.ClientX;
+        if (!colWidths.ContainsKey(col)) colWidths[col] = 150;
+        startWidth = colWidths[col];
+    }
+
+    private void OnMouseMove(MouseEventArgs e)
+    {
+        if (isResizing && resizingCol != null)
+        {
+            var delta = e.ClientX - startX;
+            var newWidth = Math.Max(50, startWidth + delta);
+            colWidths[resizingCol] = newWidth;
+        }
+    }
+
+    private void OnMouseUp(MouseEventArgs e)
+    {
+        isResizing = false;
+        resizingCol = null;
+    }
+    
+    // --- FILTERING ---
+    private void ToggleFilterMenu(string col)
+    {
+        if (activeFilterColumn == col) 
+            activeFilterColumn = null;
+        else 
+        {
+            activeFilterColumn = col;
+            pendingFilterOp = "Contains";
+            pendingFilterValue = "";
+        }
+    }
+    
+    private bool IsFiltered(string col) => State.Filters.Any(f => f.Column == col);
+    
+    private async Task ApplyFilter()
+    {
+        if (activeFilterColumn == null) return;
+        
+        // Remove existing filter for this col if simple mode, or allow multiple?
+        // Let's allow multiple (AND logic)
+        
+        State.Filters.Add(new FilterDef 
+        { 
+            Column = activeFilterColumn, 
+            Operator = pendingFilterOp, 
+            Value = pendingFilterValue 
+        });
+        
+        activeFilterColumn = null;
+        await OnStateChanged.InvokeAsync(State);
+    }
+    
+    private async Task RemoveFilter(FilterDef filter)
+    {
+        State.Filters.Remove(filter);
+        await OnStateChanged.InvokeAsync(State);
+    }
+    
+    private async Task ClearFilters()
+    {
+        State.Filters.Clear();
+        await OnStateChanged.InvokeAsync(State);
+    }
+
+    // --- HELPERS ---
+    private string GetColStyle(string col)
+    {
+        var w = colWidths.ContainsKey(col) ? colWidths[col] : 150;
+        return $"width: {w}px; min-width: {w}px; max-width: {w}px;";
+    }
+    
+    private string GetOperatorSymbol(string op) => op switch
+    {
+        "Contains" => "⊇",
+        "Equals" => "=",
+        "StartsWith" => "^=",
+        "EndsWith" => "$=",
+        "GreaterThan" => ">",
+        "LessThan" => "<",
+        _ => "op"
+    };
+}

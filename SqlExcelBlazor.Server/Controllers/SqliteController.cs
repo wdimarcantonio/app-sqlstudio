@@ -10,14 +10,100 @@ namespace SqlExcelBlazor.Server.Controllers;
 public class SqliteController : ControllerBase
 {
     private readonly SqliteService _sqliteService;
+    private readonly ServerExcelService _excelService;
 
-    public SqliteController(SqliteService sqliteService)
+    public SqliteController(SqliteService sqliteService, ServerExcelService excelService)
     {
         _sqliteService = sqliteService;
+        _excelService = excelService;
     }
 
     /// <summary>
-    /// Carica un file Excel in SQLite
+    /// Uploads file to temp storage and returns ID for further processing
+    /// </summary>
+    [HttpPost("excel/upload-temp")]
+    public async Task<IActionResult> UploadTempExcel(IFormFile file)
+    {
+        if (file == null || file.Length == 0) return BadRequest("No file uploaded");
+        
+        using var stream = new MemoryStream();
+        await file.CopyToAsync(stream);
+        var data = stream.ToArray();
+        
+        var id = _excelService.AddTempFile(data, file.FileName);
+        return Ok(new { fileId = id, fileName = file.FileName });
+    }
+
+    [HttpGet("excel/sheets/{fileId}")]
+    public IActionResult GetExcelSheets(Guid fileId)
+    {
+        var temp = _excelService.GetTempFile(fileId);
+        if (temp == null) return NotFound("File not found or expired");
+        
+        try 
+        {
+            using var stream = new MemoryStream(temp.Value.Data);
+            var sheets = _excelService.GetSheets(stream, temp.Value.FileName);
+            return Ok(sheets);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("excel/preview")]
+    public IActionResult PreviewExcelData([FromBody] ExcelPreviewRequest request)
+    {
+        var temp = _excelService.GetTempFile(request.FileId);
+        if (temp == null) return NotFound("File not found or expired");
+
+        try
+        {
+            using var stream = new MemoryStream(temp.Value.Data);
+            var dt = _excelService.GetPreview(stream, temp.Value.FileName, request.SheetName, 20);
+            
+             return Ok(new
+            {
+                columns = dt.Columns.Cast<DataColumn>().Select(c => c.ColumnName).ToList(),
+                rows = dt.Rows.Cast<DataRow>().Select(r => r.ItemArray).ToList()
+            });
+        }
+         catch (Exception ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    [HttpPost("excel/import-sheet")]
+    public async Task<IActionResult> ImportExcelSheet([FromBody] ImportSheetRequest request)
+    {
+        var temp = _excelService.GetTempFile(request.FileId);
+        if (temp == null) return NotFound("File not found or expired");
+
+        try
+        {
+            using var stream = new MemoryStream(temp.Value.Data);
+            var dt = _excelService.GetAllData(stream, temp.Value.FileName, request.SheetName);
+            
+            await _sqliteService.LoadTableAsync(dt, request.TableName);
+            
+            return Ok(new
+            {
+                success = true,
+                tableName = request.TableName,
+                rowCount = dt.Rows.Count,
+                columns = dt.Columns.Cast<DataColumn>().Select(c => c.ColumnName).ToList()
+            });
+        }
+         catch (Exception ex)
+        {
+            return BadRequest(new { success = false, error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Legacy/Direct upload (keeps backward compatibility but uses new service)
     /// </summary>
     [HttpPost("upload")]
     public async Task<IActionResult> UploadExcel(IFormFile file, [FromForm] string? tableName = null)
@@ -27,15 +113,20 @@ public class SqliteController : ControllerBase
 
         try
         {
-            // Determina nome tabella
             var name = tableName ?? Path.GetFileNameWithoutExtension(file.FileName)
                 .Replace(" ", "_").Replace("-", "_");
 
-            // Leggi Excel in DataTable
-            using var stream = file.OpenReadStream();
-            var dataTable = await ImportExcelAsync(stream);
+            using var stream = new MemoryStream();
+            await file.CopyToAsync(stream);
+            stream.Position = 0;
 
-            // Carica in SQLite
+            // Simple default: get first sheet
+            var sheets = _excelService.GetSheets(stream, file.FileName);
+            if (sheets.Count == 0) throw new Exception("No sheets found");
+            
+            stream.Position = 0; 
+            var dataTable = _excelService.GetAllData(stream, file.FileName, sheets[0]);
+
             await _sqliteService.LoadTableAsync(dataTable, name);
 
             return Ok(new
@@ -87,8 +178,58 @@ public class SqliteController : ControllerBase
     }
 
     /// <summary>
-    /// Esegue una query SQL
+    /// Carica dati JSON in SQLite
     /// </summary>
+    [HttpPost("upload-json")]
+    public async Task<IActionResult> UploadJson([FromBody] UploadJsonRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.TableName))
+            return BadRequest(new { success = false, error = "Nome tabella mancante" });
+
+        try
+        {
+            var dataTable = new DataTable();
+            
+            // Colonne
+            foreach (var col in request.Columns)
+            {
+                dataTable.Columns.Add(col, typeof(string)); 
+            }
+
+            // Righe
+            foreach (var rowDict in request.Rows)
+            {
+                var row = dataTable.NewRow();
+                foreach (var col in request.Columns)
+                {
+                    if (rowDict.TryGetValue(col, out var val) && val != null)
+                    {
+                        row[col] = val.ToString();
+                    }
+                    else
+                    {
+                        row[col] = DBNull.Value;
+                    }
+                }
+                dataTable.Rows.Add(row);
+            }
+
+            await _sqliteService.LoadTableAsync(dataTable, request.TableName);
+
+            return Ok(new
+            {
+                success = true,
+                tableName = request.TableName,
+                rowCount = dataTable.Rows.Count,
+                columns = request.Columns
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { success = false, error = ex.Message });
+        }
+    }
+
     [HttpPost("query")]
     public async Task<IActionResult> ExecuteQuery([FromBody] QueryRequest request)
     {
@@ -99,18 +240,12 @@ public class SqliteController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>
-    /// Ritorna le tabelle caricate
-    /// </summary>
     [HttpGet("tables")]
     public IActionResult GetTables()
     {
         return Ok(new { tables = _sqliteService.LoadedTables });
     }
 
-    /// <summary>
-    /// Rinomina una tabella
-    /// </summary>
     [HttpPost("rename-table")]
     public async Task<IActionResult> RenameTable([FromBody] RenameTableRequest request)
     {
@@ -128,9 +263,6 @@ public class SqliteController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Elimina una tabella
-    /// </summary>
     [HttpPost("drop-table")]
     public async Task<IActionResult> DropTable([FromBody] DropTableRequest request)
     {
@@ -148,49 +280,6 @@ public class SqliteController : ControllerBase
         }
     }
 
-    private async Task<DataTable> ImportExcelAsync(Stream stream)
-    {
-        return await Task.Run(() =>
-        {
-            using var workbook = new XLWorkbook(stream);
-            var worksheet = workbook.Worksheets.First();
-            var dataTable = new DataTable();
-
-            var headerRow = worksheet.FirstRowUsed();
-            if (headerRow == null) return dataTable;
-
-            // Colonne
-            foreach (var cell in headerRow.Cells())
-            {
-                string columnName = cell.GetString();
-                if (string.IsNullOrWhiteSpace(columnName))
-                    columnName = $"Column{cell.Address.ColumnNumber}";
-                
-                string uniqueName = columnName;
-                int counter = 1;
-                while (dataTable.Columns.Contains(uniqueName))
-                    uniqueName = $"{columnName}_{counter++}";
-                
-                dataTable.Columns.Add(uniqueName, typeof(string));
-            }
-
-            // Righe
-            var dataRows = worksheet.RowsUsed().Skip(1);
-            foreach (var row in dataRows)
-            {
-                var dataRow = dataTable.NewRow();
-                for (int i = 0; i < dataTable.Columns.Count; i++)
-                {
-                    var cell = row.Cell(i + 1);
-                    dataRow[i] = cell.GetString();
-                }
-                dataTable.Rows.Add(dataRow);
-            }
-
-            return dataTable;
-        });
-    }
-
     private DataTable ImportCsv(string content, string separator)
     {
         var dataTable = new DataTable();
@@ -198,7 +287,6 @@ public class SqliteController : ControllerBase
 
         if (lines.Length == 0) return dataTable;
 
-        // Header
         var headers = lines[0].Split(separator);
         foreach (var header in headers)
         {
@@ -214,7 +302,6 @@ public class SqliteController : ControllerBase
             dataTable.Columns.Add(uniqueName, typeof(string));
         }
 
-        // Data rows
         for (int i = 1; i < lines.Length; i++)
         {
             var values = lines[i].Split(separator);
@@ -241,3 +328,23 @@ public class RenameTableRequest
     public string NewName { get; set; } = "";
 }
 public class DropTableRequest { public string TableName { get; set; } = ""; }
+
+public class UploadJsonRequest
+{
+    public string TableName { get; set; } = "";
+    public List<string> Columns { get; set; } = new();
+    public List<Dictionary<string, object?>> Rows { get; set; } = new();
+}
+
+public class ExcelPreviewRequest
+{
+    public Guid FileId { get; set; }
+    public string SheetName { get; set; } = "";
+}
+
+public class ImportSheetRequest
+{
+    public Guid FileId { get; set; }
+    public string SheetName { get; set; } = "";
+    public string TableName { get; set; } = "";
+}

@@ -190,7 +190,8 @@ public class SqliteService : IDisposable
             for (int i = 0; i < data.Columns.Count; i++)
             {
                 var value = row[i];
-                cmd.Parameters.AddWithValue($"@p{i}", value == DBNull.Value ? null : value?.ToString() ?? "");
+                // Fix: Use DBNull.Value instead of null
+                cmd.Parameters.AddWithValue($"@p{i}", value == DBNull.Value ? DBNull.Value : (object)(value?.ToString() ?? ""));
             }
             cmd.ExecuteNonQuery();
         }
