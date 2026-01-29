@@ -5,111 +5,151 @@ namespace SqlExcelBlazor.Server.Services;
 
 /// <summary>
 /// Servizio SQLite in-memory per eseguire query SQL su dati Excel/CSV
+/// Ogni sessione ha il proprio database isolato
 /// </summary>
 public class SqliteService : IDisposable
 {
-    private SqliteConnection? _connection;
-    private readonly List<string> _loadedTables = new();
+    private readonly IWorkspaceManager _workspaceManager;
+    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ILogger<SqliteService> _logger;
     private readonly object _lock = new();
 
-    public IReadOnlyList<string> LoadedTables => _loadedTables.AsReadOnly();
-
-    private void EnsureConnection()
+    public SqliteService(
+        IWorkspaceManager workspaceManager,
+        IHttpContextAccessor httpContextAccessor,
+        ILogger<SqliteService> logger)
     {
-        if (_connection == null)
-        {
-            _connection = new SqliteConnection("Data Source=:memory:");
-            _connection.Open();
-        }
+        _workspaceManager = workspaceManager;
+        _httpContextAccessor = httpContextAccessor;
+        _logger = logger;
     }
 
     /// <summary>
-    /// Carica un DataTable in SQLite come tabella
+    /// Ottiene SessionId dal contesto HTTP (Blazor Server usa Connection.Id)
+    /// </summary>
+    private string GetSessionId()
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext != null)
+        {
+            // Blazor Server: usa SignalR Connection ID
+            return httpContext.Connection.Id ?? "default";
+        }
+        return "default";
+    }
+
+    /// <summary>
+    /// Ottiene connessione SQLite isolata per la sessione corrente
+    /// </summary>
+    private SqliteConnection GetConnection()
+    {
+        var sessionId = GetSessionId();
+        var workspace = _workspaceManager.GetOrCreateWorkspace(sessionId);
+        return workspace.Connection;
+    }
+
+    /// <summary>
+    /// Ottiene lista tabelle della sessione corrente
+    /// </summary>
+    public async Task<List<string>> GetLoadedTablesAsync()
+    {
+        var connection = GetConnection();
+        var tables = new List<string>();
+
+        using (var cmd = new SqliteCommand(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", 
+            connection))
+        {
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                tables.Add(reader.GetString(0));
+            }
+        }
+
+        return tables;
+    }
+
+    public IReadOnlyList<string> LoadedTables => GetLoadedTablesAsync().Result;
+
+    /// <summary>
+    /// Carica un DataTable in SQLite come tabella (session-scoped)
     /// </summary>
     public async Task LoadTableAsync(DataTable data, string tableName)
     {
+        var connection = GetConnection();
+        var sessionId = GetSessionId();
+        
         await Task.Run(() =>
         {
             lock (_lock)
             {
-                EnsureConnection();
-
-                // Rimuovi tabella esistente
-                if (_loadedTables.Contains(tableName))
+                // Rimuovi tabella esistente nella sessione corrente
+                using (var dropCmd = new SqliteCommand($"DROP TABLE IF EXISTS [{tableName}]", connection))
                 {
-                    using var dropCmd = new SqliteCommand($"DROP TABLE IF EXISTS [{tableName}]", _connection);
                     dropCmd.ExecuteNonQuery();
-                    _loadedTables.Remove(tableName);
                 }
 
                 // Crea tabella
                 var createSql = GenerateCreateTableSql(data, tableName);
-                using var createCmd = new SqliteCommand(createSql, _connection);
-                createCmd.ExecuteNonQuery();
+                using (var createCmd = new SqliteCommand(createSql, connection))
+                {
+                    createCmd.ExecuteNonQuery();
+                }
 
                 // Inserisci dati
-                InsertData(data, tableName);
-
-                _loadedTables.Add(tableName);
+                InsertData(data, tableName, connection);
             }
         });
+
+        _logger.LogInformation($"Loaded table '{tableName}' with {data.Rows.Count} rows in session {sessionId}");
     }
 
     /// <summary>
-    /// Rinomina una tabella esistente
+    /// Rinomina una tabella esistente (session-scoped)
     /// </summary>
     public async Task RenameTableAsync(string oldName, string newName)
     {
+        var connection = GetConnection();
+        
         await Task.Run(() =>
         {
             lock (_lock)
             {
-                EnsureConnection();
-
-                if (!_loadedTables.Contains(oldName))
-                {
-                    throw new InvalidOperationException($"Table '{oldName}' not found");
-                }
-
-                // SQLite usa ALTER TABLE per rinominare
-                using var renameCmd = new SqliteCommand($"ALTER TABLE [{oldName}] RENAME TO [{newName}]", _connection);
+                using var renameCmd = new SqliteCommand(
+                    $"ALTER TABLE [{oldName}] RENAME TO [{newName}]", 
+                    connection);
                 renameCmd.ExecuteNonQuery();
-
-                _loadedTables.Remove(oldName);
-                _loadedTables.Add(newName);
             }
         });
     }
 
     /// <summary>
-    /// Elimina una tabella esistente
+    /// Elimina una tabella esistente (session-scoped)
     /// </summary>
     public async Task DropTableAsync(string tableName)
     {
+        var connection = GetConnection();
+        
         await Task.Run(() =>
         {
             lock (_lock)
             {
-                EnsureConnection();
-
-                if (!_loadedTables.Contains(tableName))
-                {
-                    throw new InvalidOperationException($"Table '{tableName}' not found");
-                }
-
-                using var dropCmd = new SqliteCommand($"DROP TABLE IF EXISTS [{tableName}]", _connection);
+                using var dropCmd = new SqliteCommand(
+                    $"DROP TABLE IF EXISTS [{tableName}]", 
+                    connection);
                 dropCmd.ExecuteNonQuery();
-
-                _loadedTables.Remove(tableName);
             }
         });
     }
 
     /// <summary>
-    /// Esegue una query SQL e ritorna i risultati
+    /// Esegue una query SQL e ritorna i risultati (session-scoped)
     /// </summary>
     public async Task<QueryResultDto> ExecuteQueryAsync(string sql)
     {
+        var connection = GetConnection();
+        var sessionId = GetSessionId();
         var result = new QueryResultDto();
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -119,9 +159,7 @@ public class SqliteService : IDisposable
             {
                 lock (_lock)
                 {
-                    EnsureConnection();
-
-                    using var cmd = new SqliteCommand(sql, _connection);
+                    using var cmd = new SqliteCommand(sql, connection);
                     using var reader = cmd.ExecuteReader();
 
                     // Leggi colonne
@@ -147,11 +185,15 @@ public class SqliteService : IDisposable
                     result.ColumnCount = result.Columns.Count;
                 }
             });
+
+            _logger.LogInformation($"Query executed successfully in session {sessionId}: {result.Rows.Count} rows in {result.ExecutionTimeMs:F2}ms");
         }
         catch (Exception ex)
         {
             result.IsSuccess = false;
             result.ErrorMessage = ex.Message;
+            
+            _logger.LogError(ex, $"Query execution failed in session {sessionId}");
         }
 
         stopwatch.Stop();
@@ -171,11 +213,14 @@ public class SqliteService : IDisposable
         return $"CREATE TABLE [{tableName}] ({string.Join(", ", columns)})";
     }
 
-    private void InsertData(DataTable data, string tableName)
+    /// <summary>
+    /// Inserisce dati in una tabella (session-scoped)
+    /// </summary>
+    private void InsertData(DataTable data, string tableName, SqliteConnection connection)
     {
-        if (_connection == null || data.Rows.Count == 0) return;
+        if (data.Rows.Count == 0) return;
 
-        using var transaction = _connection.BeginTransaction();
+        using var transaction = connection.BeginTransaction();
 
         var columnNames = string.Join(", ",
             data.Columns.Cast<DataColumn>().Select(c => $"[{c.ColumnName}]"));
@@ -184,26 +229,33 @@ public class SqliteService : IDisposable
 
         var insertSql = $"INSERT INTO [{tableName}] ({columnNames}) VALUES ({parameters})";
 
-        foreach (DataRow row in data.Rows)
+        try
         {
-            using var cmd = new SqliteCommand(insertSql, _connection, transaction);
-            for (int i = 0; i < data.Columns.Count; i++)
+            foreach (DataRow row in data.Rows)
             {
-                var value = row[i];
-                // Fix: Use DBNull.Value instead of null
-                cmd.Parameters.AddWithValue($"@p{i}", value == DBNull.Value ? DBNull.Value : (object)(value?.ToString() ?? ""));
+                using var cmd = new SqliteCommand(insertSql, connection, transaction);
+                for (int i = 0; i < data.Columns.Count; i++)
+                {
+                    var value = row[i];
+                    // Fix: Use DBNull.Value instead of null
+                    cmd.Parameters.AddWithValue($"@p{i}", value == DBNull.Value ? DBNull.Value : (object)(value?.ToString() ?? ""));
+                }
+                cmd.ExecuteNonQuery();
             }
-            cmd.ExecuteNonQuery();
-        }
 
-        transaction.Commit();
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
     }
 
     public void Dispose()
     {
-        _connection?.Close();
-        _connection?.Dispose();
-        _loadedTables.Clear();
+        // Non disponiamo più la connessione qui
+        // WorkspaceManager si occupa della pulizia
     }
 }
 

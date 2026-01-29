@@ -32,6 +32,50 @@ Applicazione WPF .NET 8 per importare file Excel/CSV, eseguire query SQL e espor
 - Esporta risultati in Excel (.xlsx)
 - Importa in database SQL Server
 
+## Session Management
+
+### Isolamento Sessioni
+
+Ogni utente/sessione ha il proprio database SQLite isolato in memoria:
+- **Nessuna sovrapposizione tra utenti**: le tabelle di un utente non interferiscono con quelle di altri utenti
+- **Tabelle con lo stesso nome in sessioni diverse sono indipendenti**: due utenti possono importare la stessa tabella "Clienti" senza conflitti
+- **Cleanup automatico**: le sessioni inattive vengono automaticamente chiuse dopo 2 ore di inattività per liberare risorse
+
+### Architettura
+
+```
+┌─────────────────────────────────────────────────────┐
+│            WorkspaceManager (Singleton)              │
+│  Mappa: SessionId → SessionWorkspace                 │
+└─────────────────────────────────────────────────────┘
+                        │
+        ┌───────────────┴───────────────┐
+        │                               │
+        ▼                               ▼
+┌──────────────────┐          ┌──────────────────┐
+│  Session A       │          │  Session B       │
+│  (User Alice)    │          │  (User Bob)      │
+├──────────────────┤          ├──────────────────┤
+│ SessionId: abc   │          │ SessionId: xyz   │
+│ Connection:      │          │ Connection:      │
+│ ┌──────────────┐ │          │ ┌──────────────┐ │
+│ │ :memory:     │ │          │ │ :memory:     │ │
+│ │ [Clienti]    │ │          │ │ [Clienti]    │ │
+│ │ [Ordini]     │ │          │ │ [Prodotti]   │ │
+│ └──────────────┘ │          │ └──────────────┘ │
+└──────────────────┘          └──────────────────┘
+```
+
+**Componenti principali:**
+- **WorkspaceManager**: gestisce il mapping SessionId → SQLite Connection
+- **SqliteService**: usa connessioni session-scoped per l'isolamento
+- **SessionCleanupService**: pulizia automatica delle sessioni inattive
+
+### API Endpoints
+
+- `GET /api/sessions/active` - Lista delle sessioni attive (utile per admin/debug)
+- `GET /api/sessions/current` - Informazioni sulla sessione corrente
+
 ## Compilazione
 
 ```bash
@@ -60,7 +104,13 @@ SqlExcelApp/
 │   ├── ExcelService.cs        # Import/export Excel (ClosedXML)
 │   ├── CsvService.cs          # Import/export CSV
 │   ├── QueryService.cs        # Esecuzione query SQLite in-memory
+│   ├── SqliteService.cs       # Esecuzione query SQLite session-scoped
+│   ├── WorkspaceManager.cs    # Gestione workspace per sessione
+│   ├── SessionCleanupService.cs # Cleanup automatico sessioni inattive
 │   └── SqlServerService.cs    # Export verso SQL Server
+├── Controllers/
+│   ├── SqliteController.cs    # API per query e gestione dati
+│   └── SessionsController.cs  # API per monitoraggio sessioni
 ├── ViewModels/
 │   └── MainViewModel.cs       # ViewModel principale (MVVM)
 ├── Views/

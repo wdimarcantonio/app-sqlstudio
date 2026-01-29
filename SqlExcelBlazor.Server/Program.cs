@@ -4,9 +4,18 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();
 
-// Registra SQLite Service come Singleton (una istanza per tutta l'app)
-builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.SqliteService>();
+// Aggiungi HttpContextAccessor (necessario per ottenere SessionId)
+builder.Services.AddHttpContextAccessor();
+
+// Aggiungi WorkspaceManager come Singleton (gestisce tutte le sessioni)
+builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.IWorkspaceManager, SqlExcelBlazor.Server.Services.WorkspaceManager>();
+
+// SqliteService rimane Scoped (ma ora usa WorkspaceManager)
+builder.Services.AddScoped<SqlExcelBlazor.Server.Services.SqliteService>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
+
+// Aggiungi background service per cleanup
+builder.Services.AddHostedService<SqlExcelBlazor.Server.Services.SessionCleanupService>();
 
 // Configura CORS per permettere chiamate dal client (in sviluppo)
 builder.Services.AddCors(options =>
