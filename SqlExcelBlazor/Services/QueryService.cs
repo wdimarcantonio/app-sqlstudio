@@ -336,4 +336,45 @@ public class QueryService
 FROM [{first.TableAlias}]
 INNER JOIN [{second.TableAlias}] ON {joinCondition}";
     }
+    
+    /// <summary>
+    /// Gets table data as a DataTable for hybrid router
+    /// </summary>
+    public System.Data.DataTable? GetTableData(string tableName)
+    {
+        if (!_tables.TryGetValue(tableName, out var dataSource))
+            return null;
+            
+        var dataTable = new System.Data.DataTable(tableName);
+        
+        // Add columns
+        foreach (var col in dataSource.Columns)
+        {
+            dataTable.Columns.Add(col, typeof(string));
+        }
+        
+        // Add rows
+        foreach (var row in dataSource.Data)
+        {
+            var dataRow = dataTable.NewRow();
+            foreach (var col in dataSource.Columns)
+            {
+                if (row.TryGetValue(col, out var value))
+                {
+                    dataRow[col] = value == null ? DBNull.Value : (object)value;
+                }
+            }
+            dataTable.Rows.Add(dataRow);
+        }
+        
+        return dataTable;
+    }
+    
+    /// <summary>
+    /// Async version of ExecuteQuery for compatibility with hybrid router
+    /// </summary>
+    public Task<QueryResult> ExecuteQueryAsync(string sql)
+    {
+        return Task.FromResult(ExecuteQuery(sql));
+    }
 }

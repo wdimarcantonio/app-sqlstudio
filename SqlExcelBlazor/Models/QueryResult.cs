@@ -10,8 +10,10 @@ public class QueryResult
     public int RowCount => Rows.Count;
     public int ColumnCount => Columns.Count;
     public TimeSpan ExecutionTime { get; set; }
+    public double ExecutionTimeMs { get; set; }
     public string? ErrorMessage { get; set; }
     public bool IsSuccess { get; set; } = true;
+    public string ExecutionLocation { get; set; } = ""; // "WASM" or "Server"
 
     // Helper se si vuole controllare validità
     public bool HasError => !string.IsNullOrEmpty(ErrorMessage);

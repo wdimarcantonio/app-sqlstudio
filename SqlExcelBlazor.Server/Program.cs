@@ -8,6 +8,12 @@ builder.Services.AddRazorPages();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.SqliteService>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
 
+// Registra Workspace Manager per session isolation
+builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.WorkspaceManager>();
+
+// Registra Background Services
+builder.Services.AddHostedService<SqlExcelBlazor.Server.Services.SessionCleanupService>();
+
 // Registra Data Analysis Services
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.PatternDetector>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.StatisticsCalculator>();
