@@ -1,5 +1,6 @@
 using System.Data;
 using ExcelDataReader;
+using ClosedXML.Excel;
 
 namespace SqlExcelBlazor.Server.Services;
 
@@ -147,5 +148,41 @@ public class ServerExcelService
     public void RemoveTempFile(Guid id)
     {
         _tempFiles.TryRemove(id, out _);
+    }
+
+    /// <summary>
+    /// Creates an Excel file from a DataTable
+    /// </summary>
+    public byte[] CreateExcel(DataTable dataTable, string sheetName = "Sheet1")
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add(sheetName);
+        
+        // Add headers
+        for (int i = 0; i < dataTable.Columns.Count; i++)
+        {
+            worksheet.Cell(1, i + 1).Value = dataTable.Columns[i].ColumnName;
+            worksheet.Cell(1, i + 1).Style.Font.Bold = true;
+        }
+        
+        // Add data
+        for (int i = 0; i < dataTable.Rows.Count; i++)
+        {
+            for (int j = 0; j < dataTable.Columns.Count; j++)
+            {
+                var value = dataTable.Rows[i][j];
+                if (value != null && value != DBNull.Value)
+                {
+                    worksheet.Cell(i + 2, j + 1).Value = value.ToString();
+                }
+            }
+        }
+        
+        // Auto-fit columns
+        worksheet.Columns().AdjustToContents();
+        
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
     }
 }

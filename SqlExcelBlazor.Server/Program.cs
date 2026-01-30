@@ -1,5 +1,10 @@
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure data path (can be overridden in appsettings.json)
+var baseDataPath = builder.Configuration["DataPath"] ?? 
+    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SqlStudio", "data");
+builder.Configuration["DataPath"] = baseDataPath;
+
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();
@@ -7,6 +12,12 @@ builder.Services.AddRazorPages();
 // Registra SQLite Service come Singleton (una istanza per tutta l'app)
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.SqliteService>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
+
+// Registra Workspace Manager per session isolation
+builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.WorkspaceManager>();
+
+// Registra Background Services
+builder.Services.AddHostedService<SqlExcelBlazor.Server.Services.SessionCleanupService>();
 
 // Registra Data Analysis Services
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.PatternDetector>();
