@@ -1,10 +1,11 @@
 @page "/analysis"
 @using SqlExcelBlazor.Services
+@using System.Globalization
 @inject SqliteApiClient SqliteClient
 @inject IJSRuntime JS
 @inject NotificationService NotificationService
 
-<link href="css/analysis.css?v=2" rel="stylesheet" />
+<link href="css/analysis.css?v=3" rel="stylesheet" />
 
 <div class="analysis-container">
     <div class="analysis-header">
@@ -117,7 +118,7 @@
                                             <span>@column.CompletenessPercentage.ToString("F1")%</span>
                                         </div>
                                         <div class="progress-bar">
-                                            <div class="progress-fill" style="width: @(column.CompletenessPercentage.ToString("F1"))%"></div>
+                                            <div class="progress-fill" style="width: @(column.CompletenessPercentage.ToString("F1", CultureInfo.InvariantCulture))%"></div>
                                         </div>
                                         <div class="stat-details">
                                             <span>Nulli: @column.NullPercentage.ToString("F1")% (@column.NullCount.ToString("N0") record)</span>
@@ -130,7 +131,7 @@
                                             <span>@column.UniquePercentage.ToString("F1")%</span>
                                         </div>
                                         <div class="progress-bar">
-                                            <div class="progress-fill unique" style="width: @(column.UniquePercentage.ToString("F1"))%"></div>
+                                            <div class="progress-fill unique" style="width: @(column.UniquePercentage.ToString("F1", CultureInfo.InvariantCulture))%"></div>
                                         </div>
                                         <div class="stat-details">
                                             <span>@column.UniqueCount.ToString("N0") valori univoci</span>
@@ -244,7 +245,7 @@
                                                             <span class="value">@(string.IsNullOrEmpty(dist.Value) ? "(vuoto)" : dist.Value)</span>
                                                         </div>
                                                         <div class="dist-bar">
-                                                            <div class="dist-fill" style="width: @(dist.Percentage.ToString("F1"))%"></div>
+                                                            <div class="dist-fill" style="width: @(dist.Percentage.ToString("F1", CultureInfo.InvariantCulture))%"></div>
                                                             <span class="dist-text">@dist.Percentage.ToString("F1")% (@dist.Count.ToString("N0"))</span>
                                                         </div>
                                                     </div>
