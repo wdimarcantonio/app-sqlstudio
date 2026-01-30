@@ -1,0 +1,77 @@
+@inject NavigationManager Navigation
+@inject IConnectionService ConnectionService
+
+<div class="sidebar @(Collapsed ? "collapsed" : "")">
+    <div class="sidebar-header">
+        <span class="logo">@(Collapsed ? "🏠" : "🏠 SqlStudio ETL")</span>
+    </div>
+    
+    <nav class="sidebar-nav">
+        <NavLink href="/" Match="NavLinkMatch.All">
+            <span class="icon">🏠</span>
+            <span class="label">Home</span>
+        </NavLink>
+        
+        <NavLink href="/connections">
+            <span class="icon">🔌</span>
+            <span class="label">Connections</span>
+            @if (connectionCount > 0 && !Collapsed)
+            {
+                <span class="badge">@connectionCount</span>
+            }
+        </NavLink>
+        
+        <NavLink href="/pipelines">
+            <span class="icon">📊</span>
+            <span class="label">Pipelines</span>
+        </NavLink>
+        
+        <div class="nav-divider"></div>
+        
+        <NavLink href="/import">
+            <span class="icon">📥</span>
+            <span class="label">Import Data</span>
+        </NavLink>
+        
+        <NavLink href="/history">
+            <span class="icon">📜</span>
+            <span class="label">History</span>
+        </NavLink>
+        
+        <NavLink href="/settings">
+            <span class="icon">⚙️</span>
+            <span class="label">Settings</span>
+        </NavLink>
+    </nav>
+    
+    <div class="sidebar-footer">
+        <button @onclick="ToggleCollapse" class="btn-collapse">
+            <span class="icon">@(Collapsed ? "▶" : "◀")</span>
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool Collapsed { get; set; }
+    [Parameter] public EventCallback<bool> CollapsedChanged { get; set; }
+    private int connectionCount = 0;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            connectionCount = await ConnectionService.GetCountAsync();
+        }
+        catch
+        {
+            // Service may not be available yet
+            connectionCount = 0;
+        }
+    }
+    
+    private async Task ToggleCollapse()
+    {
+        Collapsed = !Collapsed;
+        await CollapsedChanged.InvokeAsync(Collapsed);
+    }
+}

@@ -1,0 +1,146 @@
+@page "/connections"
+@using SqlExcelBlazor.Models.Connections
+@using SqlExcelBlazor.Services
+@inject IConnectionService ConnectionService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<div class="page-header">
+    <h1>🔌 Connections</h1>
+    <div class="page-actions">
+        <button class="btn btn-primary" @onclick="CreateNew">
+            ➕ New Connection
+        </button>
+    </div>
+</div>
+
+<div class="connection-grid">
+    @if (connections == null)
+    {
+        <div class="loading">Loading...</div>
+    }
+    else if (!connections.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-icon">🔌</div>
+            <h3>No connections yet</h3>
+            <p>Create your first connection to get started</p>
+            <button class="btn btn-primary" @onclick="CreateNew">
+                ➕ Create Connection
+            </button>
+        </div>
+    }
+    else
+    {
+        @foreach (var connection in connections)
+        {
+            <div class="connection-card @connection.Type.ToString().ToLower()">
+                <div class="card-header">
+                    <span class="connection-icon">@GetIcon(connection.Type)</span>
+                    <div class="connection-info">
+                        <h3>@connection.Name</h3>
+                        <span class="connection-type">@connection.Type</span>
+                    </div>
+                    <div class="card-actions">
+                        <button class="btn-icon" @onclick="() => TestConnection(connection.Id)" 
+                                title="Test Connection">
+                            🔗
+                        </button>
+                        <button class="btn-icon" @onclick="() => Edit(connection.Id)" 
+                                title="Edit">
+                            ✏️
+                        </button>
+                        <button class="btn-icon btn-danger" @onclick="() => Delete(connection.Id)" 
+                                title="Delete">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="connection-details">
+                        <span class="detail-label">Status:</span>
+                        <span class="status @(connection.IsActive ? "active" : "inactive")">
+                            @(connection.IsActive ? "✅ Active" : "⏸️ Inactive")
+                        </span>
+                    </div>
+                    @if (connection.LastTested.HasValue)
+                    {
+                        <div class="connection-details">
+                            <span class="detail-label">Last Tested:</span>
+                            <span>@connection.LastTested.Value.ToString("g")</span>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(connection.Description))
+                    {
+                        <div class="connection-details">
+                            <span class="detail-label">Description:</span>
+                            <span>@connection.Description</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<Connection>? connections;
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConnections();
+    }
+    
+    private async Task LoadConnections()
+    {
+        connections = await ConnectionService.GetAllAsync();
+    }
+    
+    private void CreateNew()
+    {
+        Navigation.NavigateTo("/connections/new");
+    }
+    
+    private void Edit(int id)
+    {
+        Navigation.NavigateTo($"/connections/{id}");
+    }
+    
+    private async Task TestConnection(int id)
+    {
+        var result = await ConnectionService.TestConnectionAsync(id);
+        
+        // Show notification using JS alert for now (can be enhanced with toast)
+        var message = result.Success 
+            ? $"✅ Connection successful! ({result.ResponseTime.TotalMilliseconds:F0}ms)" 
+            : $"❌ Connection failed: {result.Message}";
+        
+        await JSRuntime.InvokeVoidAsync("alert", message);
+        
+        // Reload connections to update last tested timestamp
+        await LoadConnections();
+        StateHasChanged();
+    }
+    
+    private async Task Delete(int id)
+    {
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "Delete this connection?");
+        if (confirmed)
+        {
+            await ConnectionService.DeleteAsync(id);
+            await LoadConnections();
+            StateHasChanged();
+        }
+    }
+    
+    private string GetIcon(ConnectionType type) => type switch
+    {
+        ConnectionType.SqlServer => "🗄️",
+        ConnectionType.PostgreSQL => "🐘",
+        ConnectionType.MySQL => "🐬",
+        ConnectionType.WebService => "🌐",
+        ConnectionType.Excel => "📊",
+        ConnectionType.CSV => "📄",
+        _ => "🔌"
+    };
+}
