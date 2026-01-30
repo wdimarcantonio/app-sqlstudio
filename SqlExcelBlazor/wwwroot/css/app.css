@@ -1480,6 +1480,17 @@ main {
     margin-top: 0.5rem;
 }
 
+.filter-menu input[type="date"],
+.filter-menu input[type="number"],
+.filter-menu input[type="text"] {
+    margin-top: 0.5rem;
+}
+
+.filter-menu input[type="number"]:not(:last-of-type),
+.filter-menu input[type="date"]:not(:last-of-type) {
+    margin-bottom: 0.25rem;
+}
+
 .grid-footer {
     padding: 0.5rem;
     border-top: 1px solid var(--border-color);

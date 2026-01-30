@@ -42,17 +42,71 @@
                                 
                                 @if (activeFilterColumn == colName)
                                 {
+                                    var columnType = DetectColumnType(colName);
+                                    
                                     <div class="filter-menu" @onclick:stopPropagation="true">
                                         <div class="filter-header">Filtra @colName</div>
-                                        <select @bind="pendingFilterOp" class="form-select sm">
-                                            <option value="Contains">Contiene</option>
-                                            <option value="Equals">Uguale</option>
-                                            <option value="StartsWith">Inizia con</option>
-                                            <option value="EndsWith">Finisce con</option>
-                                            <option value="GreaterThan">Maggiore di</option>
-                                            <option value="LessThan">Minore di</option>
-                                        </select>
-                                        <input type="text" @bind="pendingFilterValue" class="form-input sm" placeholder="Valore..." />
+                                        
+                                        @if (columnType == ColumnDataType.String)
+                                        {
+                                            <select @bind="pendingFilterOp" class="form-select sm">
+                                                <option value="Contains">Contiene</option>
+                                                <option value="Equals">Uguale</option>
+                                                <option value="StartsWith">Inizia con</option>
+                                                <option value="EndsWith">Finisce con</option>
+                                                <option value="NotEquals">Diverso da</option>
+                                            </select>
+                                            <input type="text" @bind="pendingFilterValue" class="form-input sm" placeholder="Valore..." />
+                                        }
+                                        else if (columnType == ColumnDataType.Number)
+                                        {
+                                            <select @bind="pendingFilterOp" class="form-select sm">
+                                                <option value="Equals">Uguale a</option>
+                                                <option value="GreaterThan">Maggiore di</option>
+                                                <option value="LessThan">Minore di</option>
+                                                <option value="Between">Compreso tra</option>
+                                                <option value="GreaterThanOrEqual">Maggiore o uguale a</option>
+                                                <option value="LessThanOrEqual">Minore o uguale a</option>
+                                            </select>
+                                            
+                                            @if (pendingFilterOp == "Between")
+                                            {
+                                                <input type="number" @bind="pendingFilterValue" class="form-input sm" placeholder="Min..." />
+                                                <input type="number" @bind="pendingFilterValue2" class="form-input sm" placeholder="Max..." />
+                                            }
+                                            else
+                                            {
+                                                <input type="number" @bind="pendingFilterValue" class="form-input sm" placeholder="Valore..." />
+                                            }
+                                        }
+                                        else if (columnType == ColumnDataType.Date)
+                                        {
+                                            <select @bind="pendingFilterOp" class="form-select sm">
+                                                <option value="Equals">Uguale a</option>
+                                                <option value="GreaterThan">Dopo il</option>
+                                                <option value="LessThan">Prima del</option>
+                                                <option value="Between">Compreso tra</option>
+                                            </select>
+                                            
+                                            @if (pendingFilterOp == "Between")
+                                            {
+                                                <input type="text" @bind="pendingFilterValue" class="form-input sm" placeholder="yyyy-MM-dd" />
+                                                <input type="text" @bind="pendingFilterValue2" class="form-input sm" placeholder="yyyy-MM-dd" />
+                                            }
+                                            else
+                                            {
+                                                <input type="text" @bind="pendingFilterValue" class="form-input sm" placeholder="yyyy-MM-dd" />
+                                            }
+                                        }
+                                        else if (columnType == ColumnDataType.Boolean)
+                                        {
+                                            <select @bind="pendingFilterValue" class="form-select sm">
+                                                <option value="">-- Seleziona --</option>
+                                                <option value="true">Vero</option>
+                                                <option value="false">Falso</option>
+                                            </select>
+                                        }
+                                        
                                         <div class="filter-actions">
                                             <button class="btn btn-primary btn-sm" @onclick="ApplyFilter">Applica</button>
                                             <button class="btn btn-secondary btn-sm" @onclick="() => activeFilterColumn = null">Chiudi</button>
@@ -114,6 +168,19 @@
     private string? activeFilterColumn;
     private string pendingFilterOp = "Contains";
     private string pendingFilterValue = "";
+    private string? pendingFilterValue2 = null;
+    
+    // Column Type Detection
+    private Dictionary<string, ColumnDataType> columnTypes = new();
+    
+    private enum ColumnDataType
+    {
+        String,
+        Number,
+        Date,
+        Boolean,
+        Unknown
+    }
 
     protected override void OnInitialized()
     {
@@ -173,9 +240,66 @@
         else 
         {
             activeFilterColumn = col;
-            pendingFilterOp = "Contains";
+            var colType = DetectColumnType(col);
+            
+            // Set default operator based on type
+            pendingFilterOp = colType switch
+            {
+                ColumnDataType.String => "Contains",
+                ColumnDataType.Number => "Equals",
+                ColumnDataType.Date => "Equals",
+                ColumnDataType.Boolean => "Equals",
+                _ => "Contains"
+            };
+            
             pendingFilterValue = "";
+            pendingFilterValue2 = null;
         }
+    }
+    
+    private ColumnDataType DetectColumnType(string columnName)
+    {
+        if (columnTypes.ContainsKey(columnName))
+            return columnTypes[columnName];
+        
+        if (Rows == null || !Rows.Any())
+            return ColumnDataType.String;
+        
+        var samples = Rows
+            .Take(100) // Sample first 100 rows
+            .Select(r => r.GetValueOrDefault(columnName))
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .ToList();
+        
+        if (!samples.Any())
+        {
+            columnTypes[columnName] = ColumnDataType.String;
+            return ColumnDataType.String;
+        }
+        
+        // Check if all are booleans (highest priority due to fewer valid values)
+        if (samples.All(v => bool.TryParse(v, out _) || v.Equals("1") || v.Equals("0")))
+        {
+            columnTypes[columnName] = ColumnDataType.Boolean;
+            return ColumnDataType.Boolean;
+        }
+        
+        // Check if all are numbers
+        if (samples.All(v => double.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out _)))
+        {
+            columnTypes[columnName] = ColumnDataType.Number;
+            return ColumnDataType.Number;
+        }
+        
+        // Check if all are dates
+        if (samples.All(v => DateTime.TryParse(v, out _)))
+        {
+            columnTypes[columnName] = ColumnDataType.Date;
+            return ColumnDataType.Date;
+        }
+        
+        columnTypes[columnName] = ColumnDataType.String;
+        return ColumnDataType.String;
     }
     
     private bool IsFiltered(string col) => State.Filters.Any(f => f.Column == col);
@@ -184,17 +308,24 @@
     {
         if (activeFilterColumn == null) return;
         
-        // Remove existing filter for this col if simple mode, or allow multiple?
-        // Let's allow multiple (AND logic)
+        // Remove existing filter for this column
+        State.Filters.RemoveAll(f => f.Column == activeFilterColumn);
         
-        State.Filters.Add(new FilterDef 
-        { 
-            Column = activeFilterColumn, 
-            Operator = pendingFilterOp, 
-            Value = pendingFilterValue 
-        });
+        // Add new filter if value is provided
+        if (!string.IsNullOrWhiteSpace(pendingFilterValue))
+        {
+            State.Filters.Add(new FilterDef 
+            { 
+                Column = activeFilterColumn, 
+                Operator = pendingFilterOp, 
+                Value = pendingFilterValue,
+                Value2 = pendingFilterValue2
+            });
+        }
         
         activeFilterColumn = null;
+        pendingFilterValue = "";
+        pendingFilterValue2 = null;
         await OnStateChanged.InvokeAsync(State);
     }
     
@@ -223,8 +354,12 @@
         "Equals" => "=",
         "StartsWith" => "^=",
         "EndsWith" => "$=",
+        "NotEquals" => "≠",
         "GreaterThan" => ">",
         "LessThan" => "<",
+        "GreaterThanOrEqual" => "≥",
+        "LessThanOrEqual" => "≤",
+        "Between" => "⇄",
         _ => "op"
     };
 }
