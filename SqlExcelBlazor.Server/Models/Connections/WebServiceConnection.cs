@@ -70,7 +70,7 @@ public class WebServiceConnection : Connection
             
             return new ConnectionTestResult
             {
-                Success = response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.Unauthorized,
+                Success = response.IsSuccessStatusCode,
                 Message = $"HTTP {(int)response.StatusCode} {response.StatusCode}",
                 ResponseTime = sw.Elapsed
             };

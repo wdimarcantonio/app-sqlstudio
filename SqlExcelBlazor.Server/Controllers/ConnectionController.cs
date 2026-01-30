@@ -56,31 +56,14 @@ public class ConnectionController : ControllerBase
     {
         try
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-            
-            // Parse the discriminator to determine which type to deserialize
-            if (!connectionJson.TryGetProperty("discriminator", out JsonElement discriminatorElement))
-            {
-                return BadRequest(new { error = "Missing discriminator property" });
-            }
-            
-            var discriminator = discriminatorElement.GetString();
-            Connection? connection = discriminator switch
-            {
-                "SqlServer" => JsonSerializer.Deserialize<SqlServerConnection>(connectionJson.GetRawText()),
-                "PostgreSQL" => JsonSerializer.Deserialize<PostgreSqlConnection>(connectionJson.GetRawText()),
-                "MySQL" => JsonSerializer.Deserialize<MySqlConnection>(connectionJson.GetRawText()),
-                "WebService" => JsonSerializer.Deserialize<WebServiceConnection>(connectionJson.GetRawText()),
-                "Excel" => JsonSerializer.Deserialize<ExcelConnection>(connectionJson.GetRawText()),
-                "CSV" => JsonSerializer.Deserialize<CsvConnection>(connectionJson.GetRawText()),
-                _ => null
-            };
-            
+            var connection = DeserializeConnection(connectionJson);
             if (connection == null)
             {
-                return BadRequest(new { error = $"Invalid discriminator: {discriminator}" });
+                return BadRequest(new { error = "Invalid or missing discriminator property" });
             }
+            
+            if (!TryValidateModel(connection))
+                return BadRequest(ModelState);
             
             var created = await _connectionService.CreateAsync(connection);
             return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
@@ -97,33 +80,16 @@ public class ConnectionController : ControllerBase
     {
         try
         {
-            // Parse the discriminator to determine which type to deserialize
-            if (!connectionJson.TryGetProperty("discriminator", out JsonElement discriminatorElement))
-            {
-                return BadRequest(new { error = "Missing discriminator property" });
-            }
-            
-            var discriminator = discriminatorElement.GetString();
-            Connection? connection = discriminator switch
-            {
-                "SqlServer" => JsonSerializer.Deserialize<SqlServerConnection>(connectionJson.GetRawText()),
-                "PostgreSQL" => JsonSerializer.Deserialize<PostgreSqlConnection>(connectionJson.GetRawText()),
-                "MySQL" => JsonSerializer.Deserialize<MySqlConnection>(connectionJson.GetRawText()),
-                "WebService" => JsonSerializer.Deserialize<WebServiceConnection>(connectionJson.GetRawText()),
-                "Excel" => JsonSerializer.Deserialize<ExcelConnection>(connectionJson.GetRawText()),
-                "CSV" => JsonSerializer.Deserialize<CsvConnection>(connectionJson.GetRawText()),
-                _ => null
-            };
-            
+            var connection = DeserializeConnection(connectionJson);
             if (connection == null)
             {
-                return BadRequest(new { error = $"Invalid discriminator: {discriminator}" });
+                return BadRequest(new { error = "Invalid or missing discriminator property" });
             }
             
             if (id != connection.Id)
                 return BadRequest(new { error = "ID mismatch" });
             
-            if (!ModelState.IsValid)
+            if (!TryValidateModel(connection))
                 return BadRequest(ModelState);
             
             var updated = await _connectionService.UpdateAsync(connection);
@@ -179,5 +145,26 @@ public class ConnectionController : ControllerBase
             _logger.LogError(ex, "Error getting connection count");
             return StatusCode(500, new { error = "An error occurred while counting connections" });
         }
+    }
+    
+    // Helper method to reduce code duplication
+    private Connection? DeserializeConnection(JsonElement connectionJson)
+    {
+        if (!connectionJson.TryGetProperty("discriminator", out JsonElement discriminatorElement))
+        {
+            return null;
+        }
+        
+        var discriminator = discriminatorElement.GetString();
+        return discriminator switch
+        {
+            "SqlServer" => JsonSerializer.Deserialize<SqlServerConnection>(connectionJson.GetRawText()),
+            "PostgreSQL" => JsonSerializer.Deserialize<PostgreSqlConnection>(connectionJson.GetRawText()),
+            "MySQL" => JsonSerializer.Deserialize<MySqlConnection>(connectionJson.GetRawText()),
+            "WebService" => JsonSerializer.Deserialize<WebServiceConnection>(connectionJson.GetRawText()),
+            "Excel" => JsonSerializer.Deserialize<ExcelConnection>(connectionJson.GetRawText()),
+            "CSV" => JsonSerializer.Deserialize<CsvConnection>(connectionJson.GetRawText()),
+            _ => null
+        };
     }
 }

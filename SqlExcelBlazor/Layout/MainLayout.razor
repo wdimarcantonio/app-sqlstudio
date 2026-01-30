@@ -17,10 +17,10 @@
                 </ChildContent>
                 <ErrorContent Context="ex">
                     <div class="error-boundary-alert">
-                        <h3>⚠️ Si è verificato un errore imprevisto</h3>
+                        <h3>⚠️ An unexpected error occurred</h3>
                         <p>@ex.Message</p>
                         <pre style="max-height: 200px; overflow: auto; background: rgba(0,0,0,0.2); padding: 10px;">@ex.StackTrace</pre>
-                        <button class="btn btn-primary" @onclick="() => Recover(this)">Ricarica Applicazione</button>
+                        <button class="btn btn-primary" @onclick="() => Recover(this)">Reload Application</button>
                     </div>
                 </ErrorContent>
             </ErrorBoundary>

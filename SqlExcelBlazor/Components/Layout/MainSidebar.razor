@@ -62,9 +62,10 @@
         {
             connectionCount = await ConnectionService.GetCountAsync();
         }
-        catch
+        catch (Exception ex)
         {
-            // Service may not be available yet
+            // Log the error - service may not be available during initialization
+            Console.Error.WriteLine($"Error loading connection count: {ex.Message}");
             connectionCount = 0;
         }
     }

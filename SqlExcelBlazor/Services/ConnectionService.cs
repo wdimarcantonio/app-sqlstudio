@@ -30,8 +30,14 @@ public class ConnectionService : IConnectionService
             var connections = await _http.GetFromJsonAsync<List<Connection>>("api/Connection");
             return connections ?? new List<Connection>();
         }
-        catch
+        catch (HttpRequestException ex)
         {
+            Console.Error.WriteLine($"Network error loading connections: {ex.Message}");
+            return new List<Connection>();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error loading connections: {ex.Message}");
             return new List<Connection>();
         }
     }
@@ -42,8 +48,14 @@ public class ConnectionService : IConnectionService
         {
             return await _http.GetFromJsonAsync<Connection>($"api/Connection/{id}");
         }
-        catch
+        catch (HttpRequestException ex)
         {
+            Console.Error.WriteLine($"Network error loading connection {id}: {ex.Message}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error loading connection {id}: {ex.Message}");
             return null;
         }
     }
@@ -93,8 +105,14 @@ public class ConnectionService : IConnectionService
         {
             return await _http.GetFromJsonAsync<int>("api/Connection/count");
         }
-        catch
+        catch (HttpRequestException ex)
         {
+            Console.Error.WriteLine($"Network error getting connection count: {ex.Message}");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error getting connection count: {ex.Message}");
             return 0;
         }
     }
