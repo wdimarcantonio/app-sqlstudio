@@ -10,7 +10,7 @@
                  @foreach (var filter in State.Filters)
                  {
                      <span class="filter-tag">
-                         @filter.Column @GetOperatorSymbol(filter.Operator) '@filter.Value'
+                         @filter.Column @GetOperatorSymbol(filter.Operator) '@filter.Value'@(filter.Operator == "Between" && !string.IsNullOrWhiteSpace(filter.Value2) ? $" - '{filter.Value2}'" : "")
                          <button class="btn-xs" @onclick="() => RemoveFilter(filter)">✖</button>
                      </span>
                  }
@@ -190,6 +190,12 @@
             if(!colWidths.ContainsKey(c)) colWidths[c] = 150;
         }
     }
+    
+    protected override void OnParametersSet()
+    {
+        // Clear cached column types when Rows change to ensure correct type detection for new datasets
+        columnTypes.Clear();
+    }
 
     // --- SORTING ---
     private async Task ToggleSort(string col)
@@ -277,8 +283,9 @@
             return ColumnDataType.String;
         }
         
-        // Check if all are booleans (highest priority due to fewer valid values)
-        if (samples.All(v => bool.TryParse(v, out _) || v.Equals("1") || v.Equals("0")))
+        // Check if all are booleans - only check for explicit true/false strings, not 0/1
+        // to avoid false positives with binary numeric columns
+        if (samples.All(v => bool.TryParse(v, out _)))
         {
             columnTypes[columnName] = ColumnDataType.Boolean;
             return ColumnDataType.Boolean;
@@ -291,8 +298,9 @@
             return ColumnDataType.Number;
         }
         
-        // Check if all are dates
-        if (samples.All(v => DateTime.TryParse(v, out _)))
+        // Check if all are dates - be more strict to avoid false positives with numbers
+        // Only consider it a date if it has typical date separators
+        if (samples.All(v => (v.Contains('-') || v.Contains('/') || v.Contains('.')) && DateTime.TryParse(v, out _)))
         {
             columnTypes[columnName] = ColumnDataType.Date;
             return ColumnDataType.Date;
@@ -307,6 +315,13 @@
     private async Task ApplyFilter()
     {
         if (activeFilterColumn == null) return;
+        
+        // Validate Between operator requires both values
+        if (pendingFilterOp == "Between" && string.IsNullOrWhiteSpace(pendingFilterValue2))
+        {
+            // Don't apply filter if Between operator is missing second value
+            return;
+        }
         
         // Remove existing filter for this column
         State.Filters.RemoveAll(f => f.Column == activeFilterColumn);
