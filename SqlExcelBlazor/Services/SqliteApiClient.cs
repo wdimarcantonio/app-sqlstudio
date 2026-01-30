@@ -154,16 +154,59 @@ public class SqliteApiClient
     /// <summary>
     /// Ottiene la lista delle tabelle caricate
     /// </summary>
-    public async Task<List<string>> GetTablesAsync()
+    public async Task<TablesResponse> GetTablesAsync()
     {
         try
         {
             var response = await _httpClient.GetFromJsonAsync<TablesResponse>("api/sqlite/tables");
-            return response?.Tables ?? new List<string>();
+            return response ?? new TablesResponse();
         }
         catch
         {
-            return new List<string>();
+            return new TablesResponse();
+        }
+    }
+
+    /// <summary>
+    /// Analyzes a table and returns detailed statistics
+    /// </summary>
+    public async Task<AnalysisResponse> AnalyzeTableAsync(string tableName, int topValueCount = 20)
+    {
+        try
+        {
+            var request = new { TableName = tableName, TopValueCount = topValueCount, EnablePatternDetection = true, EnableParallelProcessing = true };
+            var response = await _httpClient.PostAsJsonAsync("api/dataanalysis/table", request);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<AnalysisResponse>();
+                return result ?? new AnalysisResponse { Success = false, Error = "Empty response" };
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                return new AnalysisResponse { Success = false, Error = error };
+            }
+        }
+        catch (Exception ex)
+        {
+            return new AnalysisResponse { Success = false, Error = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// Gets an analysis by ID
+    /// </summary>
+    public async Task<AnalysisResponse> GetAnalysisAsync(int analysisId)
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<AnalysisResponse>($"api/dataanalysis/{analysisId}");
+            return response ?? new AnalysisResponse { Success = false, Error = "Not found" };
+        }
+        catch (Exception ex)
+        {
+            return new AnalysisResponse { Success = false, Error = ex.Message };
         }
     }
 
@@ -299,4 +342,11 @@ public class SqliteQueryResult
 public class TablesResponse
 {
     public List<string> Tables { get; set; } = new();
+}
+
+public class AnalysisResponse
+{
+    public bool Success { get; set; }
+    public object? Analysis { get; set; }
+    public string? Error { get; set; }
 }

@@ -8,6 +8,13 @@ builder.Services.AddRazorPages();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.SqliteService>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
 
+// Registra Data Analysis Services
+builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.PatternDetector>();
+builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.StatisticsCalculator>();
+builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.QualityScoreCalculator>();
+builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.ColumnAnalyzer>();
+builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.IDataAnalyzerService, SqlExcelBlazor.Server.Services.Analysis.DataAnalyzerService>();
+
 // Configura CORS per permettere chiamate dal client (in sviluppo)
 builder.Services.AddCors(options =>
 {

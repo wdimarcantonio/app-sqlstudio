@@ -1,0 +1,444 @@
+@page "/analysis"
+@using SqlExcelBlazor.Services
+@using System.Globalization
+@inject SqliteApiClient SqliteClient
+@inject IJSRuntime JS
+@inject NotificationService NotificationService
+
+<link href="css/analysis.css?v=3" rel="stylesheet" />
+
+<div class="analysis-container">
+    <div class="analysis-header">
+        <h2>📊 Analisi Dati</h2>
+        <p class="subtitle">Analizza la qualità e le statistiche dei dati delle tue tabelle</p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">
+            <strong>Errore:</strong> @errorMessage
+        </div>
+    }
+
+    @if (isAnalyzing)
+    {
+        <div class="loading-overlay">
+            <div class="spinner"></div>
+            <p>Analisi in corso...</p>
+        </div>
+    }
+
+    @if (analysis == null)
+    {
+        <div class="analysis-start">
+            <div class="table-selector">
+                <label>Seleziona una tabella da analizzare:</label>
+                <select @bind="selectedTable" class="form-select">
+                    <option value="">-- Seleziona una tabella --</option>
+                    @foreach (var table in availableTables)
+                    {
+                        <option value="@table">@table</option>
+                    }
+                </select>
+                <button class="btn btn-primary" @onclick="AnalyzeTable" disabled="@(string.IsNullOrEmpty(selectedTable) || isAnalyzing)">
+                    🔍 Analizza
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="analysis-results">
+            <!-- Overview Panel -->
+            <div class="overview-panel">
+                <h3>Panoramica</h3>
+                <div class="overview-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Righe Totali</div>
+                        <div class="stat-value">@analysis.TotalRows.ToString("N0")</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Colonne Totali</div>
+                        <div class="stat-value">@analysis.TotalColumns</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Analizzato</div>
+                        <div class="stat-value">@analysis.AnalyzedAt.ToString("yyyy-MM-dd HH:mm:ss")</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Durata</div>
+                        <div class="stat-value">@analysis.AnalysisDuration.TotalSeconds.ToString("F2")s</div>
+                    </div>
+                    <div class="stat-card highlight">
+                        <div class="stat-label">Punteggio Qualità Generale</div>
+                        <div class="stat-value">
+                            @analysis.OverallQualityScore.ToString("F0")/100
+                            <span class="quality-badge @GetQualityClass(analysis.OverallQualityScore)">
+                                @GetQualityLabel(analysis.OverallQualityScore)
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-secondary" @onclick="ResetAnalysis">
+                    ← Analizza un'Altra Tabella
+                </button>
+            </div>
+
+            <!-- Column Analysis List -->
+            <div class="column-analysis-section">
+                <h3>Analisi Colonne</h3>
+                <div class="search-box">
+                    <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="🔍 Cerca colonne..." class="form-control" />
+                </div>
+
+                <div class="columns-list">
+                    @foreach (var column in FilteredColumns)
+                    {
+                        <div class="column-card @(expandedColumn == column.ColumnName ? "expanded" : "")">
+                            <div class="column-header" @onclick="() => ToggleColumn(column.ColumnName)">
+                                <div class="column-title">
+                                    <span class="column-name">@column.ColumnName</span>
+                                    <span class="column-type">@column.DataType → @column.InferredType</span>
+                                </div>
+                                <div class="column-meta">
+                                    <span class="quality-score @GetQualityClass(column.QualityScore)">
+                                        ⚡ @column.QualityScore.ToString("F0")/100
+                                    </span>
+                                    <span class="expand-icon">@(expandedColumn == column.ColumnName ? "▼" : "▶")</span>
+                                </div>
+                            </div>
+
+                            @if (expandedColumn == column.ColumnName)
+                            {
+                                <div class="column-details">
+                                    <!-- Completeness Bar -->
+                                    <div class="stat-section">
+                                        <div class="progress-label">
+                                            <span>Completezza</span>
+                                            <span>@column.CompletenessPercentage.ToString("F1")%</span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-fill" style="width: @(column.CompletenessPercentage.ToString("F1", CultureInfo.InvariantCulture))%"></div>
+                                        </div>
+                                        <div class="stat-details">
+                                            <span>Nulli: @column.NullPercentage.ToString("F1")% (@column.NullCount.ToString("N0") record)</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="stat-section">
+                                        <div class="progress-label">
+                                            <span>Valori Univoci</span>
+                                            <span>@column.UniquePercentage.ToString("F1")%</span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-fill unique" style="width: @(column.UniquePercentage.ToString("F1", CultureInfo.InvariantCulture))%"></div>
+                                        </div>
+                                        <div class="stat-details">
+                                            <span>@column.UniqueCount.ToString("N0") valori univoci</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Type-specific Statistics -->
+                                    @if (column.InferredType == "Numeric")
+                                    {
+                                        <div class="stat-section">
+                                            <h4>📊 Statistiche Numeriche</h4>
+                                            <div class="stats-grid">
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Min:</span>
+                                                    <span class="stat-val">@column.MinValue?.ToString("N2")</span>
+                                                </div>
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Max:</span>
+                                                    <span class="stat-val">@column.MaxValue?.ToString("N2")</span>
+                                                </div>
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Media:</span>
+                                                    <span class="stat-val">@column.AvgValue?.ToString("N2")</span>
+                                                </div>
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Mediana:</span>
+                                                    <span class="stat-val">@column.MedianValue?.ToString("N2")</span>
+                                                </div>
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Dev. Std:</span>
+                                                    <span class="stat-val">@column.StdDeviation?.ToString("N2")</span>
+                                                </div>
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Somma:</span>
+                                                    <span class="stat-val">@column.Sum?.ToString("N2")</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                    else if (column.InferredType == "String")
+                                    {
+                                        <div class="stat-section">
+                                            <h4>📝 Statistiche Stringhe</h4>
+                                            <div class="stats-grid">
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Lunghezza Min:</span>
+                                                    <span class="stat-val">@column.MinLength</span>
+                                                </div>
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Lunghezza Max:</span>
+                                                    <span class="stat-val">@column.MaxLength</span>
+                                                </div>
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Lunghezza Media:</span>
+                                                    <span class="stat-val">@column.AvgLength?.ToString("F1")</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                    else if (column.InferredType == "DateTime")
+                                    {
+                                        <div class="stat-section">
+                                            <h4>📅 Statistiche Date</h4>
+                                            <div class="stats-grid">
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Data Min:</span>
+                                                    <span class="stat-val">@column.MinDate?.ToString("yyyy-MM-dd")</span>
+                                                </div>
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Data Max:</span>
+                                                    <span class="stat-val">@column.MaxDate?.ToString("yyyy-MM-dd")</span>
+                                                </div>
+                                                <div class="stat-item">
+                                                    <span class="stat-name">Intervallo:</span>
+                                                    <span class="stat-val">@column.DateRange?.Days giorni</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <!-- Patterns Detected -->
+                                    @if (column.DetectedPatterns.Any())
+                                    {
+                                        <div class="stat-section">
+                                            <h4>🎭 Pattern Rilevati</h4>
+                                            <div class="patterns-list">
+                                                @foreach (var pattern in column.DetectedPatterns)
+                                                {
+                                                    var count = column.PatternCounts.ContainsKey(pattern) ? column.PatternCounts[pattern] : 0;
+                                                    var percentage = column.TotalValues > 0 ? ((decimal)count / column.TotalValues * 100) : 0;
+                                                    <div class="pattern-item">
+                                                        <span>✓ @pattern:</span>
+                                                        <span>@percentage.ToString("F1")% (@count.ToString("N0") record)</span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <!-- Top Values Distribution -->
+                                    @if (column.ValueDistributions.Any())
+                                    {
+                                        <div class="stat-section">
+                                            <h4>📈 Valori Principali</h4>
+                                            <div class="distribution-list">
+                                                @foreach (var dist in column.ValueDistributions.Take(10))
+                                                {
+                                                    <div class="distribution-item">
+                                                        <div class="dist-label">
+                                                            <span class="rank">#@dist.Rank</span>
+                                                            <span class="value">@(string.IsNullOrEmpty(dist.Value) ? "(vuoto)" : dist.Value)</span>
+                                                        </div>
+                                                        <div class="dist-bar">
+                                                            <div class="dist-fill" style="width: @(dist.Percentage.ToString("F1", CultureInfo.InvariantCulture))%"></div>
+                                                            <span class="dist-text">@dist.Percentage.ToString("F1")% (@dist.Count.ToString("N0"))</span>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <!-- Quality Issues -->
+                                    @if (column.QualityIssues.Any())
+                                    {
+                                        <div class="stat-section issues">
+                                            <h4>⚠️ Problemi di Qualità</h4>
+                                            <ul class="issues-list">
+                                                @foreach (var issue in column.QualityIssues)
+                                                {
+                                                    <li>@issue</li>
+                                                }
+                                            </ul>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<string> availableTables = new();
+    private string selectedTable = "";
+    private bool isAnalyzing = false;
+    private string errorMessage = "";
+    private DataAnalysisDto? analysis;
+    private string expandedColumn = "";
+    private string searchTerm = "";
+
+    private IEnumerable<ColumnAnalysisDto> FilteredColumns =>
+        analysis?.ColumnAnalyses.Where(c =>
+            string.IsNullOrWhiteSpace(searchTerm) ||
+            c.ColumnName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)
+        ) ?? Enumerable.Empty<ColumnAnalysisDto>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTables();
+    }
+
+    private async Task LoadTables()
+    {
+        try
+        {
+            var result = await SqliteClient.GetTablesAsync();
+            availableTables = result.Tables;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Impossibile caricare le tabelle: {ex.Message}";
+        }
+    }
+
+    private async Task AnalyzeTable()
+    {
+        if (string.IsNullOrEmpty(selectedTable)) return;
+
+        isAnalyzing = true;
+        errorMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            var response = await SqliteClient.AnalyzeTableAsync(selectedTable);
+            if (response.Success && response.Analysis != null)
+            {
+                // Deserialize the analysis object
+                var json = System.Text.Json.JsonSerializer.Serialize(response.Analysis);
+                analysis = System.Text.Json.JsonSerializer.Deserialize<DataAnalysisDto>(json, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                NotificationService.ShowSuccess($"Analisi completata per {selectedTable}");
+            }
+            else
+            {
+                errorMessage = response.Error ?? "Analisi fallita";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Errore durante l'analisi: {ex.Message}";
+        }
+        finally
+        {
+            isAnalyzing = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleColumn(string columnName)
+    {
+        expandedColumn = expandedColumn == columnName ? "" : columnName;
+    }
+
+    private void ResetAnalysis()
+    {
+        analysis = null;
+        selectedTable = "";
+        expandedColumn = "";
+        searchTerm = "";
+    }
+
+    private string GetQualityClass(decimal score)
+    {
+        if (score >= 90) return "excellent";
+        if (score >= 75) return "good";
+        if (score >= 60) return "fair";
+        return "poor";
+    }
+
+    private string GetQualityLabel(decimal score)
+    {
+        if (score >= 90) return "⭐⭐⭐⭐⭐";
+        if (score >= 75) return "⭐⭐⭐⭐";
+        if (score >= 60) return "⭐⭐⭐";
+        return "⭐⭐";
+    }
+
+    // DTOs for deserialization
+    private class DataAnalysisDto
+    {
+        public int Id { get; set; }
+        public string SourceName { get; set; } = "";
+        public string SourceType { get; set; } = "";
+        public DateTime AnalyzedAt { get; set; }
+        public int TotalRows { get; set; }
+        public int TotalColumns { get; set; }
+        public List<ColumnAnalysisDto> ColumnAnalyses { get; set; } = new();
+        public TimeSpan AnalysisDuration { get; set; }
+        public decimal OverallQualityScore { get; set; }
+    }
+
+    private class ColumnAnalysisDto
+    {
+        public string ColumnName { get; set; } = "";
+        public int ColumnIndex { get; set; }
+        public string DataType { get; set; } = "";
+        public string InferredType { get; set; } = "";
+        public int TotalValues { get; set; }
+        public int NullCount { get; set; }
+        public int UniqueCount { get; set; }
+        public int EmptyStringCount { get; set; }
+        public int WhitespaceOnlyCount { get; set; }
+        public decimal NullPercentage { get; set; }
+        public decimal UniquePercentage { get; set; }
+        public decimal CompletenessPercentage { get; set; }
+        public int? MinLength { get; set; }
+        public int? MaxLength { get; set; }
+        public double? AvgLength { get; set; }
+        public string? ShortestValue { get; set; }
+        public string? LongestValue { get; set; }
+        public decimal? MinValue { get; set; }
+        public decimal? MaxValue { get; set; }
+        public decimal? AvgValue { get; set; }
+        public decimal? MedianValue { get; set; }
+        public decimal? StdDeviation { get; set; }
+        public decimal? Sum { get; set; }
+        public DateTime? MinDate { get; set; }
+        public DateTime? MaxDate { get; set; }
+        public TimeSpan? DateRange { get; set; }
+        public List<ValueDistributionDto> ValueDistributions { get; set; } = new();
+        public List<string> DetectedPatterns { get; set; } = new();
+        public Dictionary<string, int> PatternCounts { get; set; } = new();
+        public decimal QualityScore { get; set; }
+        public List<string> QualityIssues { get; set; } = new();
+    }
+
+    private class ValueDistributionDto
+    {
+        public string Value { get; set; } = "";
+        public int Count { get; set; }
+        public decimal Percentage { get; set; }
+        public int Rank { get; set; }
+    }
+
+    private class AnalysisResponse
+    {
+        public bool Success { get; set; }
+        public DataAnalysisDto? Analysis { get; set; }
+        public string? Error { get; set; }
+    }
+
+    private class TablesResponse
+    {
+        public List<string> Tables { get; set; } = new();
+    }
+}

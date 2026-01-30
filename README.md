@@ -32,6 +32,19 @@ Applicazione WPF .NET 8 per importare file Excel/CSV, eseguire query SQL e espor
 - Esporta risultati in Excel (.xlsx)
 - Importa in database SQL Server
 
+### 📊 Data Analysis (NEW!)
+- Analisi completa delle colonne con statistiche dettagliate
+- Rilevamento automatico dei tipi di dato
+- Pattern detection (email, URL, phone, ecc.)
+- Quality scoring (0-100) per ogni colonna
+- Identificazione automatica di problemi di qualità
+- Visualizzazioni interattive con grafici e progress bar
+- Statistiche specifiche per numeri, stringhe e date
+- Distribuzione dei valori top N
+- Report di qualità completi
+
+Per maggiori dettagli sulla funzionalità Data Analysis, consulta [DATA_ANALYSIS.md](DATA_ANALYSIS.md).
+
 ## Compilazione
 
 ```bash
