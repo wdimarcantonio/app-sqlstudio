@@ -32,6 +32,14 @@ Applicazione WPF .NET 8 per importare file Excel/CSV, eseguire query SQL e espor
 - Esporta risultati in Excel (.xlsx)
 - Importa in database SQL Server
 
+### 🔒 Session Management (NEW!)
+- Isolamento completo delle sessioni utente
+- Ogni utente ha il proprio workspace SQLite in-memory
+- Gestione automatica del ciclo di vita delle sessioni
+- Pulizia automatica delle sessioni inattive (ogni 5 minuti)
+- API per gestione manuale delle sessioni (/api/sessions)
+- Supporto per applicazioni multi-utente scalabili
+
 ### 📊 Data Analysis (NEW!)
 - Analisi completa delle colonne con statistiche dettagliate
 - Rilevamento automatico dei tipi di dato
@@ -73,7 +81,10 @@ SqlExcelApp/
 │   ├── ExcelService.cs        # Import/export Excel (ClosedXML)
 │   ├── CsvService.cs          # Import/export CSV
 │   ├── QueryService.cs        # Esecuzione query SQLite in-memory
-│   └── SqlServerService.cs    # Export verso SQL Server
+│   ├── SqlServerService.cs    # Export verso SQL Server
+│   ├── WorkspaceManager.cs    # Gestione sessioni utente (NEW!)
+│   ├── IWorkspaceManager.cs   # Interface per gestione sessioni
+│   └── SessionCleanupService.cs # Pulizia automatica sessioni
 ├── ViewModels/
 │   └── MainViewModel.cs       # ViewModel principale (MVVM)
 ├── Views/
@@ -83,6 +94,20 @@ SqlExcelApp/
 └── Converters/
     └── BoolConverters.cs      # Converters WPF
 ```
+
+## Architettura Session Management
+
+Il sistema utilizza un'architettura multi-utente con isolamento completo delle sessioni:
+
+- **WorkspaceManager (Singleton)**: Gestisce tutti i workspace utente attivi
+- **SqliteService (Scoped per sessione)**: Database in-memory isolato per ogni utente
+- **SessionCleanupService (Background)**: Rimuove automaticamente le sessioni inattive (> 30 minuti)
+- **SessionsController (API)**: Endpoint REST per gestione manuale delle sessioni
+
+Ogni utente riceve un SessionId univoco e ottiene il proprio workspace isolato con:
+- Database SQLite in-memory dedicato
+- Tabelle e dati completamente separati
+- Nessuna interferenza con altri utenti
 
 ## Tecnologie
 
