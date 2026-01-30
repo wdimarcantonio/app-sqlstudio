@@ -1,12 +1,30 @@
+using Microsoft.EntityFrameworkCore;
+using SqlExcelBlazor.Server.Data;
+using SqlExcelBlazor.Server.Repositories;
+using SqlExcelBlazor.Server.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddControllersWithViews();
+builder.Services.AddControllersWithViews()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+    });
 builder.Services.AddRazorPages();
+
+// Register DbContext with SQLite for development
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") 
+        ?? "Data Source=app-sqlstudio.db"));
 
 // Registra SQLite Service come Singleton (una istanza per tutta l'app)
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.SqliteService>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
+
+// Register Connection Services
+builder.Services.AddScoped<IConnectionRepository, ConnectionRepository>();
+builder.Services.AddScoped<IConnectionService, ConnectionService>();
 
 // Registra Data Analysis Services
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.PatternDetector>();
