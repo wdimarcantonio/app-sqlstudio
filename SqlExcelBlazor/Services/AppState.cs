@@ -220,5 +220,20 @@ public class AppState
         return $"Tabelle: {string.Join(", ", DataSources.Select(ds => $"[{ds.TableAlias}]"))}";
     }
     
+    /// <summary>
+    /// Gets the row count for a table (for query routing decisions)
+    /// </summary>
+    public int GetTableRowCount(string tableName)
+    {
+        var dataSource = DataSources.FirstOrDefault(ds => 
+            ds.TableAlias.Equals(tableName, StringComparison.OrdinalIgnoreCase));
+        return dataSource?.Data.Count ?? 0;
+    }
+    
+    /// <summary>
+    /// Gets all loaded table names
+    /// </summary>
+    public List<string> LoadedTables => DataSources.Select(ds => ds.TableAlias).ToList();
+    
     private void NotifyStateChanged() => OnChange?.Invoke();
 }
