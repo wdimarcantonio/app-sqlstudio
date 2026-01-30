@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SqlExcelBlazor.Server.Data;
 using SqlExcelBlazor.Server.Repositories;
 using SqlExcelBlazor.Server.Services;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +11,9 @@ builder.Services.AddControllersWithViews()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        // Add polymorphic serialization support
+        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
 builder.Services.AddRazorPages();
 

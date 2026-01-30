@@ -1,8 +1,16 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 using SqlExcelBlazor.Server.Models.Connections.Enums;
 
 namespace SqlExcelBlazor.Server.Models.Connections;
 
+[JsonDerivedType(typeof(SqlServerConnection), typeDiscriminator: "SqlServer")]
+[JsonDerivedType(typeof(PostgreSqlConnection), typeDiscriminator: "PostgreSQL")]
+[JsonDerivedType(typeof(MySqlConnection), typeDiscriminator: "MySQL")]
+[JsonDerivedType(typeof(WebServiceConnection), typeDiscriminator: "WebService")]
+[JsonDerivedType(typeof(ExcelConnection), typeDiscriminator: "Excel")]
+[JsonDerivedType(typeof(CsvConnection), typeDiscriminator: "CSV")]
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "discriminator")]
 public abstract class Connection
 {
     public int Id { get; set; }

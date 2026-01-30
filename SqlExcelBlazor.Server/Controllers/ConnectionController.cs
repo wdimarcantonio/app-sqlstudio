@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using SqlExcelBlazor.Server.Models.Connections;
 using SqlExcelBlazor.Server.Services;
+using System.Text.Json;
 
 namespace SqlExcelBlazor.Server.Controllers;
 
@@ -51,12 +52,35 @@ public class ConnectionController : ControllerBase
     }
     
     [HttpPost]
-    public async Task<ActionResult<Connection>> Create([FromBody] Connection connection)
+    public async Task<ActionResult<Connection>> Create([FromBody] JsonElement connectionJson)
     {
         try
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
+            
+            // Parse the discriminator to determine which type to deserialize
+            if (!connectionJson.TryGetProperty("discriminator", out JsonElement discriminatorElement))
+            {
+                return BadRequest(new { error = "Missing discriminator property" });
+            }
+            
+            var discriminator = discriminatorElement.GetString();
+            Connection? connection = discriminator switch
+            {
+                "SqlServer" => JsonSerializer.Deserialize<SqlServerConnection>(connectionJson.GetRawText()),
+                "PostgreSQL" => JsonSerializer.Deserialize<PostgreSqlConnection>(connectionJson.GetRawText()),
+                "MySQL" => JsonSerializer.Deserialize<MySqlConnection>(connectionJson.GetRawText()),
+                "WebService" => JsonSerializer.Deserialize<WebServiceConnection>(connectionJson.GetRawText()),
+                "Excel" => JsonSerializer.Deserialize<ExcelConnection>(connectionJson.GetRawText()),
+                "CSV" => JsonSerializer.Deserialize<CsvConnection>(connectionJson.GetRawText()),
+                _ => null
+            };
+            
+            if (connection == null)
+            {
+                return BadRequest(new { error = $"Invalid discriminator: {discriminator}" });
+            }
             
             var created = await _connectionService.CreateAsync(connection);
             return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
@@ -69,10 +93,33 @@ public class ConnectionController : ControllerBase
     }
     
     [HttpPut("{id}")]
-    public async Task<ActionResult<Connection>> Update(int id, [FromBody] Connection connection)
+    public async Task<ActionResult<Connection>> Update(int id, [FromBody] JsonElement connectionJson)
     {
         try
         {
+            // Parse the discriminator to determine which type to deserialize
+            if (!connectionJson.TryGetProperty("discriminator", out JsonElement discriminatorElement))
+            {
+                return BadRequest(new { error = "Missing discriminator property" });
+            }
+            
+            var discriminator = discriminatorElement.GetString();
+            Connection? connection = discriminator switch
+            {
+                "SqlServer" => JsonSerializer.Deserialize<SqlServerConnection>(connectionJson.GetRawText()),
+                "PostgreSQL" => JsonSerializer.Deserialize<PostgreSqlConnection>(connectionJson.GetRawText()),
+                "MySQL" => JsonSerializer.Deserialize<MySqlConnection>(connectionJson.GetRawText()),
+                "WebService" => JsonSerializer.Deserialize<WebServiceConnection>(connectionJson.GetRawText()),
+                "Excel" => JsonSerializer.Deserialize<ExcelConnection>(connectionJson.GetRawText()),
+                "CSV" => JsonSerializer.Deserialize<CsvConnection>(connectionJson.GetRawText()),
+                _ => null
+            };
+            
+            if (connection == null)
+            {
+                return BadRequest(new { error = $"Invalid discriminator: {discriminator}" });
+            }
+            
             if (id != connection.Id)
                 return BadRequest(new { error = "ID mismatch" });
             
