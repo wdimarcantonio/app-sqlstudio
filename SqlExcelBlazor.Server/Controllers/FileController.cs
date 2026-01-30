@@ -32,10 +32,13 @@ public class FileController : ControllerBase
         Directory.CreateDirectory(_uploadsPath);
     }
 
+    private const long MaxFileSize = 100 * 1024 * 1024; // 100 MB
+
     /// <summary>
     /// Uploads an Excel file and loads it into a session
     /// </summary>
     [HttpPost("upload-excel")]
+    [RequestSizeLimit(100 * 1024 * 1024)] // 100 MB limit
     public async Task<IActionResult> UploadExcel(
         IFormFile file,
         [FromForm] string sessionId,
@@ -61,7 +64,7 @@ public class FileController : ControllerBase
             }
 
             // Save file temporarily
-            var fileName = Path.GetFileName(file.FileName);
+            var fileName = Path.GetFileName(file.FileName); // Prevent path traversal
             var filePath = Path.Combine(_uploadsPath, $"{sessionId}_{Guid.NewGuid()}_{fileName}");
             
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -98,7 +101,10 @@ public class FileController : ControllerBase
             {
                 System.IO.File.Delete(filePath);
             }
-            catch { /* Ignore cleanup errors */ }
+            catch (Exception cleanupEx)
+            {
+                _logger.LogWarning(cleanupEx, "Failed to delete temporary file {FilePath}", filePath);
+            }
 
             return Ok(new
             {

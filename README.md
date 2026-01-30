@@ -76,13 +76,14 @@ dotnet build
 cd SqlExcelBlazor.Server
 dotnet run
 # Il server si avvia su http://localhost:5001
+# Il client WASM sarà disponibile su http://localhost:5001
 ```
 
-### Client (in un nuovo terminale)
+### Sviluppo con hot reload
 ```bash
 cd SqlExcelBlazor.Server
 dotnet watch
-# Il client WASM sarà disponibile su http://localhost:5001
+# Il server si riavvia automaticamente ad ogni modifica
 ```
 
 ## Struttura Progetto

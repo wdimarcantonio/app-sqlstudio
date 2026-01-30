@@ -13,6 +13,8 @@ public class HybridQueryRouter
     private readonly AppState _appState;
     private readonly ILogger<HybridQueryRouter> _logger;
     private bool _serverAvailable = true;
+    private DateTime _lastServerCheck = DateTime.MinValue;
+    private readonly TimeSpan _serverCheckInterval = TimeSpan.FromMinutes(1);
 
     public HybridQueryRouter(
         ServerApiClient serverApiClient,
@@ -57,10 +59,29 @@ public class HybridQueryRouter
                 {
                     _logger.LogWarning(ex, "Server execution failed, falling back to WASM");
                     _serverAvailable = false;
+                    _lastServerCheck = DateTime.UtcNow;
                     
                     // Fallback to WASM
                     return await ExecuteOnWasmAsync(sql);
                 }
+            }
+            else if (shouldUseServer && !_serverAvailable)
+            {
+                // Periodically re-check server availability
+                if (DateTime.UtcNow - _lastServerCheck > _serverCheckInterval)
+                {
+                    _logger.LogInformation("Re-checking server availability...");
+                    _serverAvailable = await CheckServerAvailabilityAsync();
+                    
+                    if (_serverAvailable)
+                    {
+                        _logger.LogInformation("Server is back online");
+                        return await ExecuteOnServerAsync(sql, sessionId);
+                    }
+                }
+                
+                // Server still unavailable, use WASM
+                return await ExecuteOnWasmAsync(sql);
             }
             else
             {
