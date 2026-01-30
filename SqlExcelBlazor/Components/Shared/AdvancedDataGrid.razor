@@ -1,4 +1,5 @@
 @using SqlExcelBlazor.Models
+@using Microsoft.AspNetCore.Components.Web.Virtualization
 @inject IJSRuntime JS
 
 <div class="advanced-grid-container" @onmouseup="OnMouseUp" @onmousemove="OnMouseMove">
@@ -68,7 +69,7 @@
                 </tr>
             </thead>
             <tbody>
-                @if (Rows == null || Rows.Count == 0)
+                @if (FilteredAndSortedRows == null || FilteredAndSortedRows.Count == 0)
                 {
                     <tr>
                         <td colspan="@Columns.Count" class="empty-cell">Nessun dato</td>
@@ -76,22 +77,23 @@
                 }
                 else
                 {
-                    @foreach (var row in Rows)
-                    {
+                    <Virtualize Items="@FilteredAndSortedRows" Context="row" OverscanCount="5">
                         <tr>
                             @foreach (var col in Columns)
                             {
-                                <td>@row.GetValueOrDefault(col, "")</td>
+                                <td style="@GetColStyle(col)">
+                                    @(row.GetValueOrDefault(col)?.ToString() ?? "")
+                                </td>
                             }
                         </tr>
-                    }
+                    </Virtualize>
                 }
             </tbody>
         </table>
     </div>
     
     <div class="grid-footer">
-        <span class="text-muted">Righe: @TotalCount | Mostrate: @(Rows?.Count ?? 0)</span>
+        <span class="text-muted">Righe: @TotalCount | Filtrate: @(FilteredAndSortedRows?.Count ?? 0)</span>
     </div>
 </div>
 
@@ -102,6 +104,36 @@
     
     [Parameter] public GridState State { get; set; } = new();
     [Parameter] public EventCallback<GridState> OnStateChanged { get; set; }
+
+    // Computed property per righe filtrate e ordinate
+    private List<Dictionary<string, object?>> FilteredAndSortedRows
+    {
+        get
+        {
+            if (Rows == null) return new();
+            
+            // Converti Dictionary<string, string> a Dictionary<string, object?>
+            var result = Rows.Select(r => 
+                r.ToDictionary(kvp => kvp.Key, kvp => (object?)kvp.Value)
+            ).AsEnumerable();
+            
+            // Applica filtri
+            foreach (var filter in State.Filters)
+            {
+                result = result.Where(row => ApplyFilterToRow(row, filter));
+            }
+            
+            // Applica ordinamento
+            if (!string.IsNullOrEmpty(State.SortColumn))
+            {
+                result = State.SortDirection == SortDirection.Ascending
+                    ? result.OrderBy(r => r.GetValueOrDefault(State.SortColumn)?.ToString())
+                    : result.OrderByDescending(r => r.GetValueOrDefault(State.SortColumn)?.ToString());
+            }
+            
+            return result.ToList();
+        }
+    }
 
     // Resize State
     private Dictionary<string, double> colWidths = new();
@@ -179,6 +211,23 @@
     }
     
     private bool IsFiltered(string col) => State.Filters.Any(f => f.Column == col);
+    
+    private bool ApplyFilterToRow(Dictionary<string, object?> row, FilterDef filter)
+    {
+        var value = row.GetValueOrDefault(filter.Column)?.ToString() ?? "";
+        var filterValue = filter.Value ?? "";
+        
+        return filter.Operator switch
+        {
+            "Contains" => value.Contains(filterValue, StringComparison.OrdinalIgnoreCase),
+            "Equals" => value.Equals(filterValue, StringComparison.OrdinalIgnoreCase),
+            "StartsWith" => value.StartsWith(filterValue, StringComparison.OrdinalIgnoreCase),
+            "EndsWith" => value.EndsWith(filterValue, StringComparison.OrdinalIgnoreCase),
+            "GreaterThan" => string.Compare(value, filterValue, StringComparison.OrdinalIgnoreCase) > 0,
+            "LessThan" => string.Compare(value, filterValue, StringComparison.OrdinalIgnoreCase) < 0,
+            _ => true
+        };
+    }
     
     private async Task ApplyFilter()
     {

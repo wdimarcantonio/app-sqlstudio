@@ -37,6 +37,14 @@
                                    OnCancel="() => showExcelDialog = false" />
             }
             
+            @if (!string.IsNullOrEmpty(importWarningMessage))
+            {
+                <div class="alert alert-warning">
+                    @importWarningMessage
+                    <button class="btn-close-alert" @onclick="() => importWarningMessage = null">✖</button>
+                </div>
+            }
+            
             @if (showCsvDialog)
             {
                 <CsvImportDialog FileName="@(pendingCsvFile?.Name ?? "")"
@@ -131,6 +139,8 @@
     private bool showExcelDialog = false;
     private bool showCsvDialog = false;
     
+    private string? importWarningMessage = null;
+    
     // Excel State
     private Guid pendingExcelFileId;
     private string pendingExcelFileName = "";
@@ -210,8 +220,18 @@
     {
         showExcelDialog = false;
         AppState.IsLoading = true;
+        
+        // Clear previous warning
+        importWarningMessage = null;
+        
         try
         {
+            // Show warning if present
+            if (!string.IsNullOrEmpty(result.WarningMessage))
+            {
+                importWarningMessage = result.WarningMessage;
+            }
+            
             // Sync local state by fetching sample data
             await LoadDataSourceFromBackend(result);
             AppState.StatusMessage = $"Importato {result.TableName}";
