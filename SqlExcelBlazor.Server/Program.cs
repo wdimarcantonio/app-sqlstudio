@@ -10,8 +10,8 @@ builder.Services.AddHttpContextAccessor();
 // Add WorkspaceManager as Singleton (manages all sessions)
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.IWorkspaceManager, SqlExcelBlazor.Server.Services.WorkspaceManager>();
 
-// SqliteService remains Scoped (but now uses WorkspaceManager)
-builder.Services.AddScoped<SqlExcelBlazor.Server.Services.SqliteService>();
+// SqliteService for direct injection (without session isolation)
+builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.SqliteService>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
 
 // Add background service for cleanup

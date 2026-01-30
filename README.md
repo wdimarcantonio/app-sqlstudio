@@ -97,17 +97,19 @@ SqlExcelApp/
 
 ## Architettura Session Management
 
-Il sistema utilizza un'architettura multi-utente con isolamento completo delle sessioni:
+Il sistema fornisce l'infrastruttura per isolamento multi-utente delle sessioni:
 
-- **WorkspaceManager (Singleton)**: Gestisce tutti i workspace utente attivi
-- **SqliteService (Scoped per sessione)**: Database in-memory isolato per ogni utente
+- **WorkspaceManager (Singleton)**: Gestisce workspace utente isolati su richiesta
+- **SqliteService**: Ogni istanza fornisce un database in-memory isolato
 - **SessionCleanupService (Background)**: Rimuove automaticamente le sessioni inattive (> 30 minuti)
 - **SessionsController (API)**: Endpoint REST per gestione manuale delle sessioni
 
-Ogni utente riceve un SessionId univoco e ottiene il proprio workspace isolato con:
-- Database SQLite in-memory dedicato
-- Tabelle e dati completamente separati
-- Nessuna interferenza con altri utenti
+L'infrastruttura è pronta per supportare sessioni utente isolate:
+- WorkspaceManager può creare e gestire database SQLite in-memory separati per ogni sessione
+- Ogni sessione riceve il proprio SqliteService con dati completamente isolati
+- API disponibili per gestire manualmente le sessioni attive
+
+Nota: L'integrazione completa con i controller esistenti è opzionale e può essere implementata quando necessario.
 
 ## Tecnologie
 

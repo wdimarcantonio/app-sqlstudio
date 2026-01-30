@@ -22,17 +22,20 @@ public class SessionCleanupService : BackgroundService
     {
         _logger.LogInformation("Session cleanup service started");
 
+        // Do first cleanup after a short initial delay
+        await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(_cleanupInterval, stoppingToken);
-
                 var removedCount = _workspaceManager.CleanupInactiveSessions(_inactivityThreshold);
                 if (removedCount > 0)
                 {
                     _logger.LogInformation("Cleaned up {Count} inactive sessions", removedCount);
                 }
+
+                await Task.Delay(_cleanupInterval, stoppingToken);
             }
             catch (OperationCanceledException)
             {

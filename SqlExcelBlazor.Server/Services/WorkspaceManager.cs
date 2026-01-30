@@ -9,12 +9,16 @@ namespace SqlExcelBlazor.Server.Services;
 public class WorkspaceManager : IWorkspaceManager
 {
     private readonly ConcurrentDictionary<string, WorkspaceEntry> _workspaces = new();
-    private readonly object _lock = new();
 
     private class WorkspaceEntry
     {
+        private long _lastAccessedTicks;
         public SqliteService Service { get; set; } = null!;
-        public DateTime LastAccessed { get; set; }
+        public DateTime LastAccessed
+        {
+            get => new DateTime(Interlocked.Read(ref _lastAccessedTicks));
+            set => Interlocked.Exchange(ref _lastAccessedTicks, value.Ticks);
+        }
     }
 
     /// <summary>

@@ -55,6 +55,12 @@ public class SessionsController : ControllerBase
     [HttpPost("cleanup")]
     public IActionResult CleanupInactiveSessions([FromQuery] int inactivityMinutes = 30)
     {
+        // Validate input
+        if (inactivityMinutes < 1 || inactivityMinutes > 1440)
+        {
+            return BadRequest("Inactivity minutes must be between 1 and 1440 (24 hours)");
+        }
+
         var threshold = TimeSpan.FromMinutes(inactivityMinutes);
         var removedCount = _workspaceManager.CleanupInactiveSessions(threshold);
         
