@@ -132,39 +132,102 @@ public class ExcelService
     }
     
     /// <summary>
-    /// Genera i bytes per un file Excel dai dati
+    /// Genera i bytes per un file Excel dai dati (con chunking e gestione memoria)
     /// </summary>
     public byte[] GenerateExcel(QueryResult result)
     {
+        return GenerateExcelAsync(result, null).GetAwaiter().GetResult();
+    }
+    
+    /// <summary>
+    /// Genera i bytes per un file Excel dai dati con progress reporting
+    /// </summary>
+    public async Task<byte[]> GenerateExcelAsync(
+        QueryResult result, 
+        IProgress<ExportProgress>? progress = null)
+    {
+        const int CHUNK_SIZE = 1000;
+        const int GC_INTERVAL = 10000;
+        
+        using var stream = new MemoryStream();
         using var workbook = new XLWorkbook();
         var worksheet = workbook.Worksheets.Add("Risultati");
         
-        // Header
-        for (int i = 0; i < result.Columns.Count; i++)
+        try
         {
-            var cell = worksheet.Cell(1, i + 1);
-            cell.Value = result.Columns[i];
-            cell.Style.Font.Bold = true;
-            cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#2196F3");
-            cell.Style.Font.FontColor = XLColor.White;
-        }
-        
-        // Dati
-        for (int row = 0; row < result.Rows.Count; row++)
-        {
-            var rowData = result.Rows[row];
-            for (int col = 0; col < result.Columns.Count; col++)
+            // 1. Headers
+            for (int i = 0; i < result.Columns.Count; i++)
             {
-                var colName = result.Columns[col];
-                worksheet.Cell(row + 2, col + 1).Value = rowData.GetValueOrDefault(colName)?.ToString() ?? "";
+                var cell = worksheet.Cell(1, i + 1);
+                cell.Value = result.Columns[i];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#2196F3");
+                cell.Style.Font.FontColor = XLColor.White;
             }
+            
+            progress?.Report(new ExportProgress { Current = 0, Total = result.Rows.Count, Phase = "Scrittura dati" });
+            
+            // 2. Rows in chunks
+            int rowIdx = 2;
+            for (int chunk = 0; chunk < result.Rows.Count; chunk += CHUNK_SIZE)
+            {
+                var rows = result.Rows.Skip(chunk).Take(CHUNK_SIZE);
+                
+                foreach (var row in rows)
+                {
+                    for (int colIdx = 0; colIdx < result.Columns.Count; colIdx++)
+                    {
+                        var value = row.GetValueOrDefault(result.Columns[colIdx]);
+                        
+                        if (value != null)
+                        {
+                            var cell = worksheet.Cell(rowIdx, colIdx + 1);
+                            
+                            // Type-aware export
+                            if (value is DateTime dt)
+                                cell.Value = dt;
+                            else if (double.TryParse(value.ToString(), out var num))
+                                cell.Value = num;
+                            else
+                                cell.Value = value.ToString();
+                        }
+                    }
+                    rowIdx++;
+                }
+                
+                // Progress report
+                progress?.Report(new ExportProgress 
+                { 
+                    Current = Math.Min(chunk + CHUNK_SIZE, result.Rows.Count),
+                    Total = result.Rows.Count,
+                    Phase = "Scrittura dati"
+                });
+                
+                // Force GC ogni 10k righe per liberare memoria
+                if (chunk % GC_INTERVAL == 0 && chunk > 0)
+                {
+                    GC.Collect();
+                    await Task.Delay(10); // Yield
+                }
+            }
+            
+            progress?.Report(new ExportProgress { Current = result.Rows.Count, Total = result.Rows.Count, Phase = "Salvataggio file" });
+            
+            // 3. Auto-fit columns (opzionale, costoso per molte colonne)
+            if (result.Columns.Count < 50)
+            {
+                worksheet.Columns().AdjustToContents();
+            }
+            
+            workbook.SaveAs(stream);
+            progress?.Report(new ExportProgress { Current = result.Rows.Count, Total = result.Rows.Count, Phase = "Completato" });
+            
+            return stream.ToArray();
         }
-        
-        worksheet.Columns().AdjustToContents();
-        
-        using var stream = new MemoryStream();
-        workbook.SaveAs(stream);
-        return stream.ToArray();
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Errore durante l'export Excel: {ex.Message}", ex);
+        }
     }
     
     private string GenerateAlias(string fileName)
@@ -186,4 +249,15 @@ public class ImportResult
     public string? ErrorMessage { get; set; }
     public string? WarningMessage { get; set; }
     public DataSource? DataSource { get; set; }
+}
+
+/// <summary>
+/// Progress di export Excel
+/// </summary>
+public class ExportProgress
+{
+    public int Current { get; set; }
+    public int Total { get; set; }
+    public string Phase { get; set; } = "";
+    public int Percentage => Total > 0 ? (Current * 100 / Total) : 0;
 }
