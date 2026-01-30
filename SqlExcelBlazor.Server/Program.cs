@@ -1,10 +1,5 @@
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure data path (can be overridden in appsettings.json)
-var baseDataPath = builder.Configuration["DataPath"] ?? 
-    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SqlStudio", "data");
-builder.Configuration["DataPath"] = baseDataPath;
-
 // Add services to the container.
 builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();

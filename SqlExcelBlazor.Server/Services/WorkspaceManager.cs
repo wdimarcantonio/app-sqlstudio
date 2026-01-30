@@ -20,8 +20,10 @@ public class WorkspaceManager : IDisposable
         _logger = logger;
         
         // Get data path from configuration or use default
-        var baseDataPath = configuration["DataPath"] ?? 
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SqlStudio", "data");
+        var configPath = configuration["DataPath"];
+        var baseDataPath = string.IsNullOrWhiteSpace(configPath) ?
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SqlStudio", "data") :
+            configPath;
         
         _dataPath = baseDataPath;
         _sessionsPath = Path.Combine(_dataPath, "sessions");

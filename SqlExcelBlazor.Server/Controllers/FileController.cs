@@ -23,8 +23,10 @@ public class FileController : ControllerBase
         _excelService = excelService;
         _logger = logger;
         
-        var baseDataPath = configuration["DataPath"] ?? 
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SqlStudio", "data");
+        var configPath = configuration["DataPath"];
+        var baseDataPath = string.IsNullOrWhiteSpace(configPath) ?
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SqlStudio", "data") :
+            configPath;
         _uploadsPath = Path.Combine(baseDataPath, "uploads");
         
         Directory.CreateDirectory(_uploadsPath);
