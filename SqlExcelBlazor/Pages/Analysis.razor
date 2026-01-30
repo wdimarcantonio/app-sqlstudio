@@ -8,14 +8,14 @@
 
 <div class="analysis-container">
     <div class="analysis-header">
-        <h2>📊 Data Analysis</h2>
-        <p class="subtitle">Analyze data quality and statistics for your tables</p>
+        <h2>📊 Analisi Dati</h2>
+        <p class="subtitle">Analizza la qualità e le statistiche dei dati delle tue tabelle</p>
     </div>
 
     @if (!string.IsNullOrEmpty(errorMessage))
     {
         <div class="alert alert-danger">
-            <strong>Error:</strong> @errorMessage
+            <strong>Errore:</strong> @errorMessage
         </div>
     }
 
@@ -23,7 +23,7 @@
     {
         <div class="loading-overlay">
             <div class="spinner"></div>
-            <p>Analyzing data...</p>
+            <p>Analisi in corso...</p>
         </div>
     }
 
@@ -31,16 +31,16 @@
     {
         <div class="analysis-start">
             <div class="table-selector">
-                <label>Select a table to analyze:</label>
+                <label>Seleziona una tabella da analizzare:</label>
                 <select @bind="selectedTable" class="form-select">
-                    <option value="">-- Select a table --</option>
+                    <option value="">-- Seleziona una tabella --</option>
                     @foreach (var table in availableTables)
                     {
                         <option value="@table">@table</option>
                     }
                 </select>
                 <button class="btn btn-primary" @onclick="AnalyzeTable" disabled="@(string.IsNullOrEmpty(selectedTable) || isAnalyzing)">
-                    🔍 Analyze
+                    🔍 Analizza
                 </button>
             </div>
         </div>
@@ -50,26 +50,26 @@
         <div class="analysis-results">
             <!-- Overview Panel -->
             <div class="overview-panel">
-                <h3>Overview</h3>
+                <h3>Panoramica</h3>
                 <div class="overview-grid">
                     <div class="stat-card">
-                        <div class="stat-label">Total Rows</div>
+                        <div class="stat-label">Righe Totali</div>
                         <div class="stat-value">@analysis.TotalRows.ToString("N0")</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Total Columns</div>
+                        <div class="stat-label">Colonne Totali</div>
                         <div class="stat-value">@analysis.TotalColumns</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Analyzed</div>
+                        <div class="stat-label">Analizzato</div>
                         <div class="stat-value">@analysis.AnalyzedAt.ToString("yyyy-MM-dd HH:mm:ss")</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Duration</div>
+                        <div class="stat-label">Durata</div>
                         <div class="stat-value">@analysis.AnalysisDuration.TotalSeconds.ToString("F2")s</div>
                     </div>
                     <div class="stat-card highlight">
-                        <div class="stat-label">Overall Quality Score</div>
+                        <div class="stat-label">Punteggio Qualità Generale</div>
                         <div class="stat-value">
                             @analysis.OverallQualityScore.ToString("F0")/100
                             <span class="quality-badge @GetQualityClass(analysis.OverallQualityScore)">
@@ -79,15 +79,15 @@
                     </div>
                 </div>
                 <button class="btn btn-secondary" @onclick="ResetAnalysis">
-                    ← Analyze Another Table
+                    ← Analizza un'Altra Tabella
                 </button>
             </div>
 
             <!-- Column Analysis List -->
             <div class="column-analysis-section">
-                <h3>Column Analysis</h3>
+                <h3>Analisi Colonne</h3>
                 <div class="search-box">
-                    <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="🔍 Search columns..." class="form-control" />
+                    <input type="text" @bind="searchTerm" @bind:event="oninput" placeholder="🔍 Cerca colonne..." class="form-control" />
                 </div>
 
                 <div class="columns-list">
@@ -113,27 +113,27 @@
                                     <!-- Completeness Bar -->
                                     <div class="stat-section">
                                         <div class="progress-label">
-                                            <span>Completeness</span>
+                                            <span>Completezza</span>
                                             <span>@column.CompletenessPercentage.ToString("F1")%</span>
                                         </div>
                                         <div class="progress-bar">
-                                            <div class="progress-fill" style="width: @column.CompletenessPercentage%"></div>
+                                            <div class="progress-fill" style="width: @(column.CompletenessPercentage.ToString("F1"))%"></div>
                                         </div>
                                         <div class="stat-details">
-                                            <span>Null: @column.NullPercentage.ToString("F1")% (@column.NullCount.ToString("N0") records)</span>
+                                            <span>Nulli: @column.NullPercentage.ToString("F1")% (@column.NullCount.ToString("N0") record)</span>
                                         </div>
                                     </div>
 
                                     <div class="stat-section">
                                         <div class="progress-label">
-                                            <span>Unique Values</span>
+                                            <span>Valori Univoci</span>
                                             <span>@column.UniquePercentage.ToString("F1")%</span>
                                         </div>
                                         <div class="progress-bar">
-                                            <div class="progress-fill unique" style="width: @column.UniquePercentage%"></div>
+                                            <div class="progress-fill unique" style="width: @(column.UniquePercentage.ToString("F1"))%"></div>
                                         </div>
                                         <div class="stat-details">
-                                            <span>@column.UniqueCount.ToString("N0") unique values</span>
+                                            <span>@column.UniqueCount.ToString("N0") valori univoci</span>
                                         </div>
                                     </div>
 
@@ -141,7 +141,7 @@
                                     @if (column.InferredType == "Numeric")
                                     {
                                         <div class="stat-section">
-                                            <h4>📊 Numeric Statistics</h4>
+                                            <h4>📊 Statistiche Numeriche</h4>
                                             <div class="stats-grid">
                                                 <div class="stat-item">
                                                     <span class="stat-name">Min:</span>
@@ -152,19 +152,19 @@
                                                     <span class="stat-val">@column.MaxValue?.ToString("N2")</span>
                                                 </div>
                                                 <div class="stat-item">
-                                                    <span class="stat-name">Avg:</span>
+                                                    <span class="stat-name">Media:</span>
                                                     <span class="stat-val">@column.AvgValue?.ToString("N2")</span>
                                                 </div>
                                                 <div class="stat-item">
-                                                    <span class="stat-name">Median:</span>
+                                                    <span class="stat-name">Mediana:</span>
                                                     <span class="stat-val">@column.MedianValue?.ToString("N2")</span>
                                                 </div>
                                                 <div class="stat-item">
-                                                    <span class="stat-name">Std Dev:</span>
+                                                    <span class="stat-name">Dev. Std:</span>
                                                     <span class="stat-val">@column.StdDeviation?.ToString("N2")</span>
                                                 </div>
                                                 <div class="stat-item">
-                                                    <span class="stat-name">Sum:</span>
+                                                    <span class="stat-name">Somma:</span>
                                                     <span class="stat-val">@column.Sum?.ToString("N2")</span>
                                                 </div>
                                             </div>
@@ -173,18 +173,18 @@
                                     else if (column.InferredType == "String")
                                     {
                                         <div class="stat-section">
-                                            <h4>📝 String Statistics</h4>
+                                            <h4>📝 Statistiche Stringhe</h4>
                                             <div class="stats-grid">
                                                 <div class="stat-item">
-                                                    <span class="stat-name">Min Length:</span>
+                                                    <span class="stat-name">Lunghezza Min:</span>
                                                     <span class="stat-val">@column.MinLength</span>
                                                 </div>
                                                 <div class="stat-item">
-                                                    <span class="stat-name">Max Length:</span>
+                                                    <span class="stat-name">Lunghezza Max:</span>
                                                     <span class="stat-val">@column.MaxLength</span>
                                                 </div>
                                                 <div class="stat-item">
-                                                    <span class="stat-name">Avg Length:</span>
+                                                    <span class="stat-name">Lunghezza Media:</span>
                                                     <span class="stat-val">@column.AvgLength?.ToString("F1")</span>
                                                 </div>
                                             </div>
@@ -193,19 +193,19 @@
                                     else if (column.InferredType == "DateTime")
                                     {
                                         <div class="stat-section">
-                                            <h4>📅 Date Statistics</h4>
+                                            <h4>📅 Statistiche Date</h4>
                                             <div class="stats-grid">
                                                 <div class="stat-item">
-                                                    <span class="stat-name">Min Date:</span>
+                                                    <span class="stat-name">Data Min:</span>
                                                     <span class="stat-val">@column.MinDate?.ToString("yyyy-MM-dd")</span>
                                                 </div>
                                                 <div class="stat-item">
-                                                    <span class="stat-name">Max Date:</span>
+                                                    <span class="stat-name">Data Max:</span>
                                                     <span class="stat-val">@column.MaxDate?.ToString("yyyy-MM-dd")</span>
                                                 </div>
                                                 <div class="stat-item">
-                                                    <span class="stat-name">Range:</span>
-                                                    <span class="stat-val">@column.DateRange?.Days days</span>
+                                                    <span class="stat-name">Intervallo:</span>
+                                                    <span class="stat-val">@column.DateRange?.Days giorni</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -215,7 +215,7 @@
                                     @if (column.DetectedPatterns.Any())
                                     {
                                         <div class="stat-section">
-                                            <h4>🎭 Patterns Detected</h4>
+                                            <h4>🎭 Pattern Rilevati</h4>
                                             <div class="patterns-list">
                                                 @foreach (var pattern in column.DetectedPatterns)
                                                 {
@@ -223,7 +223,7 @@
                                                     var percentage = column.TotalValues > 0 ? ((decimal)count / column.TotalValues * 100) : 0;
                                                     <div class="pattern-item">
                                                         <span>✓ @pattern:</span>
-                                                        <span>@percentage.ToString("F1")% (@count.ToString("N0") records)</span>
+                                                        <span>@percentage.ToString("F1")% (@count.ToString("N0") record)</span>
                                                     </div>
                                                 }
                                             </div>
@@ -234,17 +234,17 @@
                                     @if (column.ValueDistributions.Any())
                                     {
                                         <div class="stat-section">
-                                            <h4>📈 Top Values</h4>
+                                            <h4>📈 Valori Principali</h4>
                                             <div class="distribution-list">
                                                 @foreach (var dist in column.ValueDistributions.Take(10))
                                                 {
                                                     <div class="distribution-item">
                                                         <div class="dist-label">
                                                             <span class="rank">#@dist.Rank</span>
-                                                            <span class="value">@(string.IsNullOrEmpty(dist.Value) ? "(empty)" : dist.Value)</span>
+                                                            <span class="value">@(string.IsNullOrEmpty(dist.Value) ? "(vuoto)" : dist.Value)</span>
                                                         </div>
                                                         <div class="dist-bar">
-                                                            <div class="dist-fill" style="width: @dist.Percentage%"></div>
+                                                            <div class="dist-fill" style="width: @(dist.Percentage.ToString("F1"))%"></div>
                                                             <span class="dist-text">@dist.Percentage.ToString("F1")% (@dist.Count.ToString("N0"))</span>
                                                         </div>
                                                     </div>
@@ -257,7 +257,7 @@
                                     @if (column.QualityIssues.Any())
                                     {
                                         <div class="stat-section issues">
-                                            <h4>⚠️ Quality Issues</h4>
+                                            <h4>⚠️ Problemi di Qualità</h4>
                                             <ul class="issues-list">
                                                 @foreach (var issue in column.QualityIssues)
                                                 {
@@ -305,7 +305,7 @@
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load tables: {ex.Message}";
+            errorMessage = $"Impossibile caricare le tabelle: {ex.Message}";
         }
     }
 
@@ -325,16 +325,16 @@
                 // Deserialize the analysis object
                 var json = System.Text.Json.JsonSerializer.Serialize(response.Analysis);
                 analysis = System.Text.Json.JsonSerializer.Deserialize<DataAnalysisDto>(json, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                NotificationService.ShowSuccess($"Analysis completed for {selectedTable}");
+                NotificationService.ShowSuccess($"Analisi completata per {selectedTable}");
             }
             else
             {
-                errorMessage = response.Error ?? "Analysis failed";
+                errorMessage = response.Error ?? "Analisi fallita";
             }
         }
         catch (Exception ex)
         {
-            errorMessage = $"Error during analysis: {ex.Message}";
+            errorMessage = $"Errore durante l'analisi: {ex.Message}";
         }
         finally
         {
