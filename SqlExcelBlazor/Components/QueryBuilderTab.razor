@@ -154,27 +154,14 @@
             {
                 if (AppState.LastResult.IsSuccess)
                 {
-                     <table class="data-grid">
-                        <thead>
-                            <tr>
-                                @foreach (var col in AppState.LastResult.Columns)
-                                {
-                                    <th>@col</th>
-                                }
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var row in AppState.LastResult.Rows.Skip((currentPage - 1) * pageSize).Take(pageSize))
-                            {
-                                <tr>
-                                    @foreach (var col in AppState.LastResult.Columns)
-                                    {
-                                        <td>@row.GetValueOrDefault(col)?.ToString()</td>
-                                    }
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
+                    <div style="height: 500px;">
+                        <AdvancedDataGrid 
+                            Columns="@AppState.LastResult.Columns" 
+                            Rows="@ConvertRowsToStringDictionary(AppState.LastResult.Rows)" 
+                            TotalCount="@AppState.LastResult.Rows.Count"
+                            State="@queryGridState"
+                            OnStateChanged="@HandleGridStateChange" />
+                    </div>
                 }
                 else
                 {
@@ -195,7 +182,10 @@
     private bool showSql = false;
     private bool isExecuted = false;
     
-    // Pagination
+    // Grid state for results
+    private GridState queryGridState = new();
+    
+    // Pagination (no longer used with AdvancedDataGrid, kept for compatibility)
     private int currentPage = 1;
     private int pageSize = 50;
     private int totalPages => AppState.LastResult != null ? (int)Math.Ceiling((double)AppState.LastResult.Rows.Count / pageSize) : 1;
@@ -345,6 +335,25 @@
         await AppState.ExecuteQueryWithSqliteAsync();
         isExecuted = true;
         currentPage = 1; // Reset page
+        queryGridState = new GridState(); // Reset grid state
+    }
+    
+    // Convert object? dictionaries to string dictionaries for AdvancedDataGrid
+    private List<Dictionary<string, string>> ConvertRowsToStringDictionary(List<Dictionary<string, object?>> rows)
+    {
+        return rows.Select(row => 
+            row.ToDictionary(
+                kvp => kvp.Key, 
+                kvp => kvp.Value?.ToString() ?? ""
+            )
+        ).ToList();
+    }
+    
+    // Handle grid state changes (sorting, filtering)
+    private void HandleGridStateChange(GridState newState)
+    {
+        queryGridState = newState;
+        StateHasChanged();
     }
     
     public void Dispose()
