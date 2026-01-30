@@ -8,16 +8,28 @@ namespace SqlExcelBlazor.Services;
 /// </summary>
 public class ExcelService
 {
+    // Limiti di sicurezza
+    public const int MAX_ROWS_HARD_LIMIT = 50000;
+    public const int MAX_ROWS_WARNING = 10000;
+    public const int MAX_FILE_SIZE_MB = 50;
+    
     /// <summary>
     /// Parsa un file Excel da uno stream
     /// </summary>
-    /// <summary>
-    /// Parsa un file Excel da uno stream
-    /// </summary>
-    public async Task<DataSource> ParseExcelAsync(Stream stream, string fileName)
+    public async Task<ImportResult> ParseExcelWithValidationAsync(Stream stream, string fileName)
     {
         return await Task.Run(() =>
         {
+            var result = new ImportResult();
+            
+            // 1. Verifica dimensione file
+            if (stream.Length > MAX_FILE_SIZE_MB * 1024 * 1024)
+            {
+                result.ErrorMessage = $"Il file supera il limite di {MAX_FILE_SIZE_MB}MB. " +
+                                      $"Dimensione: {stream.Length / 1024 / 1024}MB";
+                return result;
+            }
+            
             var dataSource = new DataSource
             {
                 Name = fileName,
@@ -30,7 +42,11 @@ public class ExcelService
             
             // Prima riga come header
             var headerRow = worksheet.FirstRowUsed();
-            if (headerRow == null) return dataSource;
+            if (headerRow == null) 
+            {
+                result.ErrorMessage = "Il file non contiene righe di intestazione.";
+                return result;
+            }
             
             var columns = new List<string>();
             var existingColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -57,6 +73,24 @@ public class ExcelService
             
             // Righe dati
             var dataRows = worksheet.RowsUsed().Skip(1);
+            var totalRows = dataRows.Count();
+            
+            // 2. Verifica numero righe
+            if (totalRows > MAX_ROWS_HARD_LIMIT)
+            {
+                result.ErrorMessage = $"Il file contiene {totalRows:N0} righe. " +
+                                      $"Limite massimo: {MAX_ROWS_HARD_LIMIT:N0}. " +
+                                      "Filtra i dati in Excel prima dell'import.";
+                return result;
+            }
+            
+            // 3. Warning per dataset grandi
+            if (totalRows > MAX_ROWS_WARNING)
+            {
+                result.WarningMessage = $"⚠️ Il file contiene {totalRows:N0} righe. " +
+                                        "L'elaborazione potrebbe richiedere tempo.";
+            }
+            
             foreach (var row in dataRows)
             {
                 var rowData = new Dictionary<string, string>();
@@ -71,8 +105,30 @@ public class ExcelService
             dataSource.RowCount = dataSource.Data.Count;
             dataSource.IsLoaded = true;
             
-            return dataSource;
+            result.Success = true;
+            result.DataSource = dataSource;
+            return result;
         });
+    }
+    
+    /// <summary>
+    /// Parsa un file Excel da uno stream (metodo legacy per compatibilità)
+    /// </summary>
+    public async Task<DataSource> ParseExcelAsync(Stream stream, string fileName)
+    {
+        var result = await ParseExcelWithValidationAsync(stream, fileName);
+        if (result.Success && result.DataSource != null)
+        {
+            return result.DataSource;
+        }
+        
+        // In caso di errore, ritorna un DataSource vuoto
+        return new DataSource
+        {
+            Name = fileName,
+            Type = DataSourceType.Excel,
+            TableAlias = GenerateAlias(fileName)
+        };
     }
     
     /// <summary>
@@ -119,4 +175,15 @@ public class ExcelService
         if (char.IsDigit(alias[0])) alias = "T" + alias;
         return alias;
     }
+}
+
+/// <summary>
+/// Risultato dell'importazione con validazione
+/// </summary>
+public class ImportResult
+{
+    public bool Success { get; set; }
+    public string? ErrorMessage { get; set; }
+    public string? WarningMessage { get; set; }
+    public DataSource? DataSource { get; set; }
 }
