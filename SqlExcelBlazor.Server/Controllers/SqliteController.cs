@@ -28,7 +28,18 @@ public class SqliteController : ControllerBase
     /// </summary>
     private SqliteService GetSessionSqliteService()
     {
-        var sessionId = _httpContextAccessor.HttpContext?.Session.Id;
+        var session = _httpContextAccessor.HttpContext?.Session;
+        if (session == null)
+        {
+            throw new InvalidOperationException(
+                "Session not available. Ensure that session middleware is enabled.");
+        }
+        
+        // Access session to ensure it's loaded and has an ID
+        // This triggers session creation if it doesn't exist yet
+        _ = session.IsAvailable;
+        
+        var sessionId = session.Id;
         if (string.IsNullOrEmpty(sessionId))
         {
             throw new InvalidOperationException(
