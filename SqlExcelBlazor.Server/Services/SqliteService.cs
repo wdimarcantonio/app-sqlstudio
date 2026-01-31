@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using System.Data;
+using Microsoft.Extensions.Logging;
 
 namespace SqlExcelBlazor.Server.Services;
 
@@ -11,6 +12,12 @@ public class SqliteService : IDisposable
     private SqliteConnection? _connection;
     private readonly List<string> _loadedTables = new();
     private readonly object _lock = new();
+    private readonly ILogger<SqliteService>? _logger;
+
+    public SqliteService(ILogger<SqliteService>? logger = null)
+    {
+        _logger = logger;
+    }
 
     public IReadOnlyList<string> LoadedTables => _loadedTables.AsReadOnly();
 
@@ -18,8 +25,10 @@ public class SqliteService : IDisposable
     {
         if (_connection == null)
         {
+            _logger?.LogInformation("Creating new SQLite in-memory connection");
             _connection = new SqliteConnection("Data Source=:memory:");
             _connection.Open();
+            _logger?.LogInformation("SQLite connection opened successfully");
         }
     }
 
@@ -32,11 +41,15 @@ public class SqliteService : IDisposable
         {
             lock (_lock)
             {
+                _logger?.LogInformation("LoadTableAsync called for table '{TableName}' with {RowCount} rows, {ColumnCount} columns", 
+                    tableName, data.Rows.Count, data.Columns.Count);
+                
                 EnsureConnection();
 
                 // Rimuovi tabella esistente
                 if (_loadedTables.Contains(tableName))
                 {
+                    _logger?.LogInformation("Dropping existing table '{TableName}'", tableName);
                     using var dropCmd = new SqliteCommand($"DROP TABLE IF EXISTS [{tableName}]", _connection);
                     dropCmd.ExecuteNonQuery();
                     _loadedTables.Remove(tableName);
@@ -44,13 +57,17 @@ public class SqliteService : IDisposable
 
                 // Crea tabella
                 var createSql = GenerateCreateTableSql(data, tableName);
+                _logger?.LogInformation("Creating table with SQL: {CreateSql}", createSql);
                 using var createCmd = new SqliteCommand(createSql, _connection);
                 createCmd.ExecuteNonQuery();
 
                 // Inserisci dati
+                _logger?.LogInformation("Inserting {RowCount} rows into table '{TableName}'", data.Rows.Count, tableName);
                 InsertData(data, tableName);
 
                 _loadedTables.Add(tableName);
+                _logger?.LogInformation("Table '{TableName}' successfully loaded. Total tables: {TableCount}. Tables: {Tables}", 
+                    tableName, _loadedTables.Count, string.Join(", ", _loadedTables));
             }
         });
     }
