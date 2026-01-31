@@ -9,6 +9,12 @@ namespace SqlExcelBlazor.Services;
 /// </summary>
 public class CookieHandler : DelegatingHandler
 {
+    public CookieHandler()
+    {
+        // In Blazor WASM, the inner handler is provided by the browser
+        // We don't need to set it explicitly
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, 
         CancellationToken cancellationToken)

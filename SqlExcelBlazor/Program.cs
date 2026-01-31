@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using SqlExcelBlazor;
 using SqlExcelBlazor.Services;
 
@@ -7,17 +8,21 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-// Configure HttpClient with CookieHandler to send credentials (session cookies)
+// Configure HttpClient with message handler for credentials (session cookies)
 builder.Services.AddTransient<CookieHandler>();
-builder.Services.AddScoped(sp => 
+
+// Use AddHttpClient to properly configure with base address and message handler
+builder.Services.AddHttpClient("default", client =>
 {
-    var cookieHandler = sp.GetRequiredService<CookieHandler>();
-    var httpClient = new HttpClient(cookieHandler)
-    {
-        BaseAddress = new Uri(builder.HostEnvironment.BaseAddress)
-    };
-    
-    return httpClient;
+    client.BaseAddress = new Uri(builder.HostEnvironment.BaseAddress);
+})
+.AddHttpMessageHandler<CookieHandler>();
+
+// Register a scoped HttpClient that uses the named client
+builder.Services.AddScoped(sp =>
+{
+    var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+    return httpClientFactory.CreateClient("default");
 });
 
 // Registra AppState come Singleton
