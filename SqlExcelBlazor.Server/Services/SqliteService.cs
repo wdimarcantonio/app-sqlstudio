@@ -5,6 +5,7 @@ namespace SqlExcelBlazor.Server.Services;
 
 /// <summary>
 /// Servizio SQLite in-memory per eseguire query SQL su dati Excel/CSV
+/// Ogni istanza ha il proprio database in-memory isolato per sessione
 /// </summary>
 public class SqliteService : IDisposable
 {

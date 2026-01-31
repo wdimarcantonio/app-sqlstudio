@@ -9,10 +9,11 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 
-// Registra AppState come Singleton
-builder.Services.AddSingleton<AppState>();
+// Registra AppState come Scoped (una istanza per sessione utente)
+// FIX: Cambiato da Singleton a Scoped per isolare le sessioni degli utenti
+builder.Services.AddScoped<AppState>();
 builder.Services.AddScoped<SqlServerClientService>();
-builder.Services.AddSingleton<NotificationService>();
+builder.Services.AddScoped<NotificationService>();
 
 // Registra client API SQLite
 builder.Services.AddScoped<SqliteApiClient>();

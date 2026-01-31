@@ -4,8 +4,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();
 
-// Registra SQLite Service come Singleton (una istanza per tutta l'app)
-builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.SqliteService>();
+// Registra SQLite Service come Scoped (una istanza per ogni richiesta HTTP/sessione)
+// FIX: Cambiato da Singleton a Scoped per isolare le sessioni degli utenti
+builder.Services.AddScoped<SqlExcelBlazor.Server.Services.SqliteService>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
 
 // Registra Data Analysis Services
@@ -13,7 +14,7 @@ builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.PatternDet
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.StatisticsCalculator>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.QualityScoreCalculator>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.ColumnAnalyzer>();
-builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.IDataAnalyzerService, SqlExcelBlazor.Server.Services.Analysis.DataAnalyzerService>();
+builder.Services.AddScoped<SqlExcelBlazor.Server.Services.Analysis.IDataAnalyzerService, SqlExcelBlazor.Server.Services.Analysis.DataAnalyzerService>();
 
 // Configura CORS per permettere chiamate dal client (in sviluppo)
 builder.Services.AddCors(options =>
