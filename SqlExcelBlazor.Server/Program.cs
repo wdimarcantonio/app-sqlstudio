@@ -4,14 +4,23 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();
 
+// Add session support for session isolation
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromMinutes(30);
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+});
+
 // Add HttpContextAccessor (needed for SessionId)
 builder.Services.AddHttpContextAccessor();
 
 // Add WorkspaceManager as Singleton (manages all sessions)
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.IWorkspaceManager, SqlExcelBlazor.Server.Services.WorkspaceManager>();
 
-// SqliteService for direct injection (without session isolation)
-builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.SqliteService>();
+// Other services
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
 
 // Add background service for cleanup
@@ -52,6 +61,8 @@ app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
 
 app.UseRouting();
+
+app.UseSession();
 
 app.UseCors("AllowAll");
 
