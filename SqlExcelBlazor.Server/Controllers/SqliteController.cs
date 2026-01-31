@@ -9,13 +9,55 @@ namespace SqlExcelBlazor.Server.Controllers;
 [Route("api/[controller]")]
 public class SqliteController : ControllerBase
 {
-    private readonly SqliteService _sqliteService;
+    private readonly IWorkspaceManager _workspaceManager;
     private readonly ServerExcelService _excelService;
+    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ILogger<SqliteController> _logger;
 
-    public SqliteController(SqliteService sqliteService, ServerExcelService excelService)
+    public SqliteController(
+        IWorkspaceManager workspaceManager, 
+        ServerExcelService excelService,
+        IHttpContextAccessor httpContextAccessor,
+        ILogger<SqliteController> logger)
     {
-        _sqliteService = sqliteService;
+        _workspaceManager = workspaceManager;
         _excelService = excelService;
+        _httpContextAccessor = httpContextAccessor;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Gets the session-specific SqliteService for the current user
+    /// </summary>
+    private SqliteService GetSessionSqliteService()
+    {
+        var session = _httpContextAccessor.HttpContext?.Session;
+        if (session == null)
+        {
+            _logger.LogError("Session not available in HttpContext");
+            throw new InvalidOperationException(
+                "Session not available. Ensure that session middleware is enabled.");
+        }
+        
+        // Access session to ensure it's loaded and has an ID
+        // This triggers session creation if it doesn't exist yet
+        _ = session.IsAvailable;
+        
+        var sessionId = session.Id;
+        _logger.LogInformation("Session ID retrieved: {SessionId}", sessionId);
+        
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            _logger.LogError("Session ID is null or empty after accessing session");
+            throw new InvalidOperationException(
+                "Session ID not available. Ensure that session middleware is enabled and the request includes a valid session cookie.");
+        }
+        
+        var sqliteService = _workspaceManager.GetWorkspace(sessionId);
+        _logger.LogInformation("SqliteService retrieved for session {SessionId}, LoadedTables count: {Count}", 
+            sessionId, sqliteService.LoadedTables.Count);
+        
+        return sqliteService;
     }
 
     /// <summary>
@@ -78,15 +120,31 @@ public class SqliteController : ControllerBase
     [HttpPost("excel/import-sheet")]
     public async Task<IActionResult> ImportExcelSheet([FromBody] ImportSheetRequest request)
     {
+        _logger.LogInformation("ImportExcelSheet called for table: {TableName}, FileId: {FileId}", 
+            request.TableName, request.FileId);
+        
         var temp = _excelService.GetTempFile(request.FileId);
-        if (temp == null) return NotFound("File not found or expired");
+        if (temp == null)
+        {
+            _logger.LogWarning("Temp file not found: {FileId}", request.FileId);
+            return NotFound("File not found or expired");
+        }
 
         try
         {
             using var stream = new MemoryStream(temp.Value.Data);
             var dt = _excelService.GetAllData(stream, temp.Value.FileName, request.SheetName);
             
-            await _sqliteService.LoadTableAsync(dt, request.TableName);
+            _logger.LogInformation("Data loaded from Excel: {RowCount} rows, {ColumnCount} columns", 
+                dt.Rows.Count, dt.Columns.Count);
+            
+            var sqliteService = GetSessionSqliteService();
+            _logger.LogInformation("About to call LoadTableAsync for table: {TableName}", request.TableName);
+            
+            await sqliteService.LoadTableAsync(dt, request.TableName);
+            
+            _logger.LogInformation("LoadTableAsync completed. Current LoadedTables: {Tables}", 
+                string.Join(", ", sqliteService.LoadedTables));
             
             return Ok(new
             {
@@ -127,7 +185,8 @@ public class SqliteController : ControllerBase
             stream.Position = 0; 
             var dataTable = _excelService.GetAllData(stream, file.FileName, sheets[0]);
 
-            await _sqliteService.LoadTableAsync(dataTable, name);
+            var sqliteService = GetSessionSqliteService();
+            await sqliteService.LoadTableAsync(dataTable, name);
 
             return Ok(new
             {
@@ -161,7 +220,8 @@ public class SqliteController : ControllerBase
             var content = await reader.ReadToEndAsync();
             var dataTable = ImportCsv(content, separator);
 
-            await _sqliteService.LoadTableAsync(dataTable, name);
+            var sqliteService = GetSessionSqliteService();
+            await sqliteService.LoadTableAsync(dataTable, name);
 
             return Ok(new
             {
@@ -214,7 +274,8 @@ public class SqliteController : ControllerBase
                 dataTable.Rows.Add(row);
             }
 
-            await _sqliteService.LoadTableAsync(dataTable, request.TableName);
+            var sqliteService = GetSessionSqliteService();
+            await sqliteService.LoadTableAsync(dataTable, request.TableName);
 
             return Ok(new
             {
@@ -236,14 +297,19 @@ public class SqliteController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Sql))
             return BadRequest(new { success = false, error = "Query SQL vuota" });
 
-        var result = await _sqliteService.ExecuteQueryAsync(request.Sql);
+        var sqliteService = GetSessionSqliteService();
+        var result = await sqliteService.ExecuteQueryAsync(request.Sql);
         return Ok(result);
     }
 
     [HttpGet("tables")]
     public IActionResult GetTables()
     {
-        return Ok(new { tables = _sqliteService.LoadedTables });
+        _logger.LogInformation("GetTables called");
+        var sqliteService = GetSessionSqliteService();
+        var tables = sqliteService.LoadedTables;
+        _logger.LogInformation("Returning {Count} tables: {Tables}", tables.Count, string.Join(", ", tables));
+        return Ok(new { tables });
     }
 
     [HttpPost("rename-table")]
@@ -254,7 +320,8 @@ public class SqliteController : ControllerBase
 
         try
         {
-            await _sqliteService.RenameTableAsync(request.OldName, request.NewName);
+            var sqliteService = GetSessionSqliteService();
+            await sqliteService.RenameTableAsync(request.OldName, request.NewName);
             return Ok(new { success = true });
         }
         catch (Exception ex)
@@ -271,7 +338,8 @@ public class SqliteController : ControllerBase
 
         try
         {
-            await _sqliteService.DropTableAsync(request.TableName);
+            var sqliteService = GetSessionSqliteService();
+            await sqliteService.DropTableAsync(request.TableName);
             return Ok(new { success = true });
         }
         catch (Exception ex)

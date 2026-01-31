@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using SqlExcelBlazor.Server.Models.Analysis;
+using SqlExcelBlazor.Server.Services;
 using SqlExcelBlazor.Server.Services.Analysis;
 
 namespace SqlExcelBlazor.Server.Controllers;
@@ -9,10 +10,42 @@ namespace SqlExcelBlazor.Server.Controllers;
 public class DataAnalysisController : ControllerBase
 {
     private readonly IDataAnalyzerService _analyzerService;
+    private readonly IWorkspaceManager _workspaceManager;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public DataAnalysisController(IDataAnalyzerService analyzerService)
+    public DataAnalysisController(
+        IDataAnalyzerService analyzerService,
+        IWorkspaceManager workspaceManager,
+        IHttpContextAccessor httpContextAccessor)
     {
         _analyzerService = analyzerService;
+        _workspaceManager = workspaceManager;
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    /// <summary>
+    /// Gets the session-specific SqliteService for the current user
+    /// </summary>
+    private SqliteService GetSessionSqliteService()
+    {
+        var session = _httpContextAccessor.HttpContext?.Session;
+        if (session == null)
+        {
+            throw new InvalidOperationException(
+                "Session not available. Ensure that session middleware is enabled.");
+        }
+        
+        // Access session to ensure it's loaded and has an ID
+        // This triggers session creation if it doesn't exist yet
+        _ = session.IsAvailable;
+        
+        var sessionId = session.Id;
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            throw new InvalidOperationException(
+                "Session ID not available. Ensure that session middleware is enabled and the request includes a valid session cookie.");
+        }
+        return _workspaceManager.GetWorkspace(sessionId);
     }
 
     /// <summary>
@@ -33,7 +66,8 @@ public class DataAnalysisController : ControllerBase
                 EnableParallelProcessing = request.EnableParallelProcessing ?? true
             };
 
-            var analysis = await _analyzerService.AnalyzeTableAsync(request.TableName, config);
+            var sqliteService = GetSessionSqliteService();
+            var analysis = await _analyzerService.AnalyzeTableAsync(sqliteService, request.TableName, config);
             
             return Ok(new { success = true, analysis });
         }

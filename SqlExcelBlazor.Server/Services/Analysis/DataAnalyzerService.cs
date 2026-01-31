@@ -10,21 +10,19 @@ namespace SqlExcelBlazor.Server.Services.Analysis;
 /// </summary>
 public class DataAnalyzerService : IDataAnalyzerService
 {
-    private readonly SqliteService _sqliteService;
     private readonly ColumnAnalyzer _columnAnalyzer;
     private readonly ConcurrentDictionary<int, DataAnalysis> _analysisCache = new();
     private int _nextId = 0;
 
-    public DataAnalyzerService(SqliteService sqliteService, ColumnAnalyzer columnAnalyzer)
+    public DataAnalyzerService(ColumnAnalyzer columnAnalyzer)
     {
-        _sqliteService = sqliteService;
         _columnAnalyzer = columnAnalyzer;
     }
 
     /// <summary>
     /// Analyze a table from SQLite
     /// </summary>
-    public async Task<DataAnalysis> AnalyzeTableAsync(string tableName, AnalysisConfiguration? config = null)
+    public async Task<DataAnalysis> AnalyzeTableAsync(SqliteService sqliteService, string tableName, AnalysisConfiguration? config = null)
     {
         config ??= new AnalysisConfiguration();
         var stopwatch = Stopwatch.StartNew();
@@ -36,7 +34,7 @@ public class DataAnalyzerService : IDataAnalyzerService
         }
 
         // Get table data
-        var queryResult = await _sqliteService.ExecuteQueryAsync($"SELECT * FROM [{tableName}]");
+        var queryResult = await sqliteService.ExecuteQueryAsync($"SELECT * FROM [{tableName}]");
         
         if (!queryResult.IsSuccess)
         {
