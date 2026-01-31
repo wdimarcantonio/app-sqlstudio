@@ -16,6 +16,7 @@ public enum SortDirection
 public class FilterDef
 {
     public string Column { get; set; } = "";
-    public string Operator { get; set; } = "Contains"; // Contains, Equals, StartsWith, EndsWith, GreaterThan, LessThan
+    public string Operator { get; set; } = "Contains"; // Contains, Equals, StartsWith, EndsWith, GreaterThan, LessThan, Between
     public string Value { get; set; } = "";
+    public string? Value2 { get; set; } // For Between operator
 }
