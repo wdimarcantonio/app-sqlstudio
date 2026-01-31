@@ -31,7 +31,8 @@ public class SqliteController : ControllerBase
         var sessionId = _httpContextAccessor.HttpContext?.Session.Id;
         if (string.IsNullOrEmpty(sessionId))
         {
-            throw new InvalidOperationException("Session ID not available");
+            throw new InvalidOperationException(
+                "Session ID not available. Ensure that session middleware is enabled and the request includes a valid session cookie.");
         }
         return _workspaceManager.GetWorkspace(sessionId);
     }
