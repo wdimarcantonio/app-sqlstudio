@@ -28,7 +28,7 @@ Applicazione WPF .NET 8 per importare file Excel/CSV, eseguire query SQL e espor
 - Visualizzazione risultati in griglia
 - Supporto JOIN tra tabelle (multiple origini dati)
 
-### �� Export
+### 📤 Export
 - Esporta risultati in Excel (.xlsx)
 - Importa in database SQL Server
 
