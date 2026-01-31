@@ -147,7 +147,12 @@ public class SqliteController : ControllerBase
     /// Carica un file CSV in SQLite
     /// </summary>
     [HttpPost("upload-csv")]
-    public async Task<IActionResult> UploadCsv(IFormFile file, [FromForm] string? tableName = null, [FromForm] string separator = ";")
+    public async Task<IActionResult> UploadCsv(
+        IFormFile file, 
+        [FromForm] string? tableName = null, 
+        [FromForm] string separator = ";",
+        [FromForm] string dateFormat = "dd/MM/yyyy",
+        [FromForm] string decimalSeparator = ",")
     {
         if (file == null || file.Length == 0)
             return BadRequest("Nessun file caricato");
@@ -159,7 +164,7 @@ public class SqliteController : ControllerBase
 
             using var reader = new StreamReader(file.OpenReadStream());
             var content = await reader.ReadToEndAsync();
-            var dataTable = ImportCsv(content, separator);
+            var dataTable = ImportCsv(content, separator, dateFormat, decimalSeparator);
 
             await _sqliteService.LoadTableAsync(dataTable, name);
 
@@ -280,9 +285,14 @@ public class SqliteController : ControllerBase
         }
     }
 
-    private DataTable ImportCsv(string content, string separator)
+    private DataTable ImportCsv(string content, string separator, string dateFormat, string decimalSeparator)
     {
         var dataTable = new DataTable();
+        
+        // Store regional settings as extended properties for later use in type detection
+        dataTable.ExtendedProperties["DateFormat"] = dateFormat;
+        dataTable.ExtendedProperties["DecimalSeparator"] = decimalSeparator;
+        
         var lines = content.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
         if (lines.Length == 0) return dataTable;

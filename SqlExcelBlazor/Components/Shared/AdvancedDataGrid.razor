@@ -36,7 +36,7 @@
                                     }
                                 </span>
                                 
-                                <button class="btn-filter @(IsFiltered(colName) ? "active" : "")" @onclick="() => ToggleFilterMenu(colName)" @onclick:stopPropagation="true">
+                                <button class="btn-filter @(IsFiltered(colName) ? "active" : "")" @onclick="async () => await ToggleFilterMenu(colName)" @onclick:stopPropagation="true">
                                     🔍
                                 </button>
                                 
@@ -90,12 +90,31 @@
                                             
                                             @if (pendingFilterOp == "Between")
                                             {
-                                                <input type="text" @bind="pendingFilterValue" class="form-input sm" placeholder="yyyy-MM-dd" />
-                                                <input type="text" @bind="pendingFilterValue2" class="form-input sm" placeholder="yyyy-MM-dd" />
+                                                <input type="text" @ref="dateInput1" @bind="pendingFilterValue" @bind:event="oninput" class="form-input sm date-mask-it" placeholder="gg/MM/aaaa" maxlength="10" />
+                                                <input type="text" @ref="dateInput2" @bind="pendingFilterValue2" @bind:event="oninput" class="form-input sm date-mask-it" placeholder="gg/MM/aaaa" maxlength="10" />
                                             }
                                             else
                                             {
-                                                <input type="text" @bind="pendingFilterValue" class="form-input sm" placeholder="yyyy-MM-dd" />
+                                                <input type="text" @ref="dateInput1" @bind="pendingFilterValue" @bind:event="oninput" class="form-input sm date-mask-it" placeholder="gg/MM/aaaa" maxlength="10" />
+                                            }
+                                        }
+                                        else if (columnType == ColumnDataType.DateTime)
+                                        {
+                                            <select @bind="pendingFilterOp" class="form-select sm">
+                                                <option value="Equals">Uguale a</option>
+                                                <option value="GreaterThan">Dopo il</option>
+                                                <option value="LessThan">Prima del</option>
+                                                <option value="Between">Compreso tra</option>
+                                            </select>
+                                            
+                                            @if (pendingFilterOp == "Between")
+                                            {
+                                                <input type="text" @ref="dateInput1" @bind="pendingFilterValue" @bind:event="oninput" class="form-input sm datetime-mask-it" placeholder="gg/MM/aaaa HH:mm" maxlength="16" />
+                                                <input type="text" @ref="dateInput2" @bind="pendingFilterValue2" @bind:event="oninput" class="form-input sm datetime-mask-it" placeholder="gg/MM/aaaa HH:mm" maxlength="16" />
+                                            }
+                                            else
+                                            {
+                                                <input type="text" @ref="dateInput1" @bind="pendingFilterValue" @bind:event="oninput" class="form-input sm datetime-mask-it" placeholder="gg/MM/aaaa HH:mm" maxlength="16" />
                                             }
                                         }
                                         else if (columnType == ColumnDataType.Boolean)
@@ -130,12 +149,12 @@
                 }
                 else
                 {
-                    @foreach (var row in Rows)
+                    @foreach (var row in FilteredAndSortedRows)
                     {
                         <tr>
                             @foreach (var col in Columns)
                             {
-                                <td>@row.GetValueOrDefault(col, "")</td>
+                                <td>@FormatCellValue(row.GetValueOrDefault(col, ""), col)</td>
                             }
                         </tr>
                     }
@@ -145,7 +164,7 @@
     </div>
     
     <div class="grid-footer">
-        <span class="text-muted">Righe: @TotalCount | Mostrate: @(Rows?.Count ?? 0)</span>
+        <span class="text-muted">Righe totali: @TotalCount | Filtrate: @(FilteredAndSortedRows.Count)</span>
     </div>
 </div>
 
@@ -156,7 +175,9 @@
     
     [Parameter] public GridState State { get; set; } = new();
     [Parameter] public EventCallback<GridState> OnStateChanged { get; set; }
-
+    // Date input references for mask
+    private ElementReference dateInput1;
+    private ElementReference dateInput2;
     // Resize State
     private Dictionary<string, double> colWidths = new();
     private bool isResizing;
@@ -178,6 +199,7 @@
         String,
         Number,
         Date,
+        DateTime,
         Boolean,
         Unknown
     }
@@ -195,6 +217,275 @@
     {
         // Clear cached column types when Rows change to ensure correct type detection for new datasets
         columnTypes.Clear();
+    }
+
+    // --- DATA PROCESSING ---
+    private List<Dictionary<string, string>> FilteredAndSortedRows
+    {
+        get
+        {
+            if (Rows == null || !Rows.Any())
+                return new List<Dictionary<string, string>>();
+
+            var result = Rows.AsEnumerable();
+
+            // Apply filters
+            foreach (var filter in State.Filters)
+            {
+                result = result.Where(row => MatchesFilter(row, filter));
+            }
+
+            var resultList = result.ToList();
+
+            // Apply sorting
+            if (!string.IsNullOrEmpty(State.SortColumn))
+            {
+                resultList = State.SortDirection == SortDirection.Ascending
+                    ? resultList.OrderBy(row => GetSortValue(row, State.SortColumn)).ToList()
+                    : resultList.OrderByDescending(row => GetSortValue(row, State.SortColumn)).ToList();
+            }
+
+            return resultList;
+        }
+    }
+
+    private bool MatchesFilter(Dictionary<string, string> row, FilterDef filter)
+    {
+        var cellValue = row.GetValueOrDefault(filter.Column, "");
+        var filterValue = filter.Value ?? "";
+        var filterValue2 = filter.Value2 ?? "";
+
+        var colType = DetectColumnType(filter.Column);
+
+        switch (colType)
+        {
+            case ColumnDataType.String:
+                return filter.Operator switch
+                {
+                    "Contains" => cellValue.Contains(filterValue, StringComparison.OrdinalIgnoreCase),
+                    "Equals" => cellValue.Equals(filterValue, StringComparison.OrdinalIgnoreCase),
+                    "StartsWith" => cellValue.StartsWith(filterValue, StringComparison.OrdinalIgnoreCase),
+                    "EndsWith" => cellValue.EndsWith(filterValue, StringComparison.OrdinalIgnoreCase),
+                    "NotEquals" => !cellValue.Equals(filterValue, StringComparison.OrdinalIgnoreCase),
+                    _ => true
+                };
+
+            case ColumnDataType.Number:
+                if (!double.TryParse(cellValue, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var numValue))
+                    return false;
+                if (!double.TryParse(filterValue, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var filterNum))
+                    return false;
+
+                return filter.Operator switch
+                {
+                    "Equals" => Math.Abs(numValue - filterNum) < 0.000001,
+                    "GreaterThan" => numValue > filterNum,
+                    "LessThan" => numValue < filterNum,
+                    "GreaterThanOrEqual" => numValue >= filterNum,
+                    "LessThanOrEqual" => numValue <= filterNum,
+                    "Between" => double.TryParse(filterValue2, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var filterNum2) 
+                                  && numValue >= filterNum && numValue <= filterNum2,
+                    _ => true
+                };
+
+            case ColumnDataType.Date:
+                // Try parsing the cell value
+                if (!DateTime.TryParse(cellValue, out var dateValue))
+                    return false;
+
+                // Convert Italian format (dd/MM/yyyy) to DateTime
+                DateTime filterDate;
+                if (filterValue.Contains('/'))
+                {
+                    // Italian format dd/MM/yyyy
+                    var parts = filterValue.Split('/');
+                    if (parts.Length == 3 && 
+                        int.TryParse(parts[0], out var day) && 
+                        int.TryParse(parts[1], out var month) && 
+                        int.TryParse(parts[2], out var year))
+                    {
+                        try
+                        {
+                            filterDate = new DateTime(year, month, day);
+                        }
+                        catch
+                        {
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+                else if (!DateTime.TryParse(filterValue, out filterDate))
+                {
+                    return false;
+                }
+
+                // Compare only dates, ignore time
+                var dateValueDate = dateValue.Date;
+                var filterDateDate = filterDate.Date;
+
+                if (filter.Operator == "Between")
+                {
+                    DateTime filterDate2;
+                    if (filterValue2.Contains('/'))
+                    {
+                        var parts2 = filterValue2.Split('/');
+                        if (parts2.Length == 3 && 
+                            int.TryParse(parts2[0], out var day2) && 
+                            int.TryParse(parts2[1], out var month2) && 
+                            int.TryParse(parts2[2], out var year2))
+                        {
+                            try
+                            {
+                                filterDate2 = new DateTime(year2, month2, day2);
+                            }
+                            catch
+                            {
+                                return false;
+                            }
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                    }
+                    else if (!DateTime.TryParse(filterValue2, out filterDate2))
+                    {
+                        return false;
+                    }
+
+                    var filterDate2Date = filterDate2.Date;
+                    return dateValueDate >= filterDateDate && dateValueDate <= filterDate2Date;
+                }
+
+                return filter.Operator switch
+                {
+                    "Equals" => dateValueDate == filterDateDate,
+                    "GreaterThan" => dateValueDate > filterDateDate,
+                    "LessThan" => dateValueDate < filterDateDate,
+                    _ => true
+                };
+
+            case ColumnDataType.DateTime:
+                // Try parsing the cell value
+                if (!DateTime.TryParse(cellValue, out var dateTimeValue))
+                    return false;
+
+                // Parse filter value (dd/MM/yyyy HH:mm or dd/MM/yyyy)
+                DateTime filterDateTime;
+                if (filterValue.Contains('/'))
+                {
+                    // Italian format dd/MM/yyyy HH:mm or dd/MM/yyyy
+                    var spaceParts = filterValue.Split(' ');
+                    var datePart = spaceParts[0];
+                    var timePart = spaceParts.Length > 1 ? spaceParts[1] : "00:00";
+                    
+                    var parts = datePart.Split('/');
+                    var timeParts = timePart.Split(':');
+                    
+                    if (parts.Length == 3 && timeParts.Length == 2 &&
+                        int.TryParse(parts[0], out var day) && 
+                        int.TryParse(parts[1], out var month) && 
+                        int.TryParse(parts[2], out var year) &&
+                        int.TryParse(timeParts[0], out var hour) &&
+                        int.TryParse(timeParts[1], out var minute))
+                    {
+                        try
+                        {
+                            filterDateTime = new DateTime(year, month, day, hour, minute, 0);
+                        }
+                        catch
+                        {
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+                else if (!DateTime.TryParse(filterValue, out filterDateTime))
+                {
+                    return false;
+                }
+
+                if (filter.Operator == "Between")
+                {
+                    DateTime filterDateTime2;
+                    if (filterValue2.Contains('/'))
+                    {
+                        var spaceParts2 = filterValue2.Split(' ');
+                        var datePart2 = spaceParts2[0];
+                        var timePart2 = spaceParts2.Length > 1 ? spaceParts2[1] : "00:00";
+                        
+                        var parts2 = datePart2.Split('/');
+                        var timeParts2 = timePart2.Split(':');
+                        
+                        if (parts2.Length == 3 && timeParts2.Length == 2 &&
+                            int.TryParse(parts2[0], out var day2) && 
+                            int.TryParse(parts2[1], out var month2) && 
+                            int.TryParse(parts2[2], out var year2) &&
+                            int.TryParse(timeParts2[0], out var hour2) &&
+                            int.TryParse(timeParts2[1], out var minute2))
+                        {
+                            try
+                            {
+                                filterDateTime2 = new DateTime(year2, month2, day2, hour2, minute2, 0);
+                            }
+                            catch
+                            {
+                                return false;
+                            }
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                    }
+                    else if (!DateTime.TryParse(filterValue2, out filterDateTime2))
+                    {
+                        return false;
+                    }
+
+                    return dateTimeValue >= filterDateTime && dateTimeValue <= filterDateTime2;
+                }
+
+                return filter.Operator switch
+                {
+                    "Equals" => dateTimeValue == filterDateTime,
+                    "GreaterThan" => dateTimeValue > filterDateTime,
+                    "LessThan" => dateTimeValue < filterDateTime,
+                    _ => true
+                };
+
+            case ColumnDataType.Boolean:
+                if (!bool.TryParse(cellValue, out var boolValue))
+                    return false;
+                if (!bool.TryParse(filterValue, out var filterBool))
+                    return false;
+                return boolValue == filterBool;
+
+            default:
+                return cellValue.Contains(filterValue, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private object GetSortValue(Dictionary<string, string> row, string column)
+    {
+        var value = row.GetValueOrDefault(column, "");
+        var colType = DetectColumnType(column);
+
+        return colType switch
+        {
+            ColumnDataType.Number => double.TryParse(value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var num) ? num : 0.0,
+            ColumnDataType.Date => DateTime.TryParse(value, out var date) ? date : DateTime.MinValue,
+            ColumnDataType.DateTime => DateTime.TryParse(value, out var dateTime) ? dateTime : DateTime.MinValue,
+            ColumnDataType.Boolean => bool.TryParse(value, out var b) ? b : false,
+            _ => value
+        };
     }
 
     // --- SORTING ---
@@ -239,7 +530,7 @@
     }
     
     // --- FILTERING ---
-    private void ToggleFilterMenu(string col)
+    private async Task ToggleFilterMenu(string col)
     {
         if (activeFilterColumn == col) 
             activeFilterColumn = null;
@@ -254,12 +545,20 @@
                 ColumnDataType.String => "Contains",
                 ColumnDataType.Number => "Equals",
                 ColumnDataType.Date => "Equals",
+                ColumnDataType.DateTime => "Equals",
                 ColumnDataType.Boolean => "Equals",
                 _ => "Contains"
             };
             
             pendingFilterValue = "";
             pendingFilterValue2 = null;
+            
+            // Initialize date masks after rendering
+            if (colType == ColumnDataType.Date || colType == ColumnDataType.DateTime)
+            {
+                await Task.Delay(10); // Small delay to ensure DOM is rendered
+                await JS.InvokeVoidAsync("initDateMasks");
+            }
         }
     }
     
@@ -298,12 +597,23 @@
             return ColumnDataType.Number;
         }
         
-        // Check if all are dates - be more strict to avoid false positives with numbers
+        // Check if all are dates/datetimes - be more strict to avoid false positives with numbers
         // Only consider it a date if it has typical date separators
         if (samples.All(v => (v.Contains('-') || v.Contains('/') || v.Contains('.')) && DateTime.TryParse(v, out _)))
         {
-            columnTypes[columnName] = ColumnDataType.Date;
-            return ColumnDataType.Date;
+            // Distinguish between Date and DateTime
+            // If any sample has time component (not 00:00:00), it's DateTime
+            bool hasTimeComponent = samples.Any(v => 
+            {
+                if (DateTime.TryParse(v, out var dt))
+                {
+                    return dt.TimeOfDay != TimeSpan.Zero;
+                }
+                return false;
+            });
+            
+            columnTypes[columnName] = hasTimeComponent ? ColumnDataType.DateTime : ColumnDataType.Date;
+            return columnTypes[columnName];
         }
         
         columnTypes[columnName] = ColumnDataType.String;
@@ -357,6 +667,27 @@
     }
 
     // --- HELPERS ---
+    private string FormatCellValue(string value, string columnName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+        
+        var colType = DetectColumnType(columnName);
+        
+        if (colType == ColumnDataType.Date && DateTime.TryParse(value, out var date))
+        {
+            // Format as Italian date only (dd/MM/yyyy)
+            return date.ToString("dd/MM/yyyy");
+        }
+        else if (colType == ColumnDataType.DateTime && DateTime.TryParse(value, out var dateTime))
+        {
+            // Format as Italian datetime (dd/MM/yyyy HH:mm)
+            return dateTime.ToString("dd/MM/yyyy HH:mm");
+        }
+        
+        return value;
+    }
+    
     private string GetColStyle(string col)
     {
         var w = colWidths.ContainsKey(col) ? colWidths[col] : 150;

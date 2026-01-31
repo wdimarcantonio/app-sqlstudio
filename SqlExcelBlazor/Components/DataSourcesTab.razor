@@ -232,7 +232,7 @@
         }
     }
     
-    private async Task OnCsvConfirmed((string Alias, string Separator) options)
+    private async Task OnCsvConfirmed((string Alias, string Separator, string DateFormat, string DecimalSeparator) options)
     {
         showCsvDialog = false;
         if (pendingCsvFile == null) return;
@@ -248,7 +248,7 @@
              await stream.CopyToAsync(ms);
              ms.Position = 0;
              
-             var result = await SqliteApi.UploadCsvAsync(ms, pendingCsvFile.Name, options.Alias, options.Separator);
+             var result = await SqliteApi.UploadCsvAsync(ms, pendingCsvFile.Name, options.Alias, options.Separator, options.DateFormat, options.DecimalSeparator);
              
              if (result.Success)
              {
