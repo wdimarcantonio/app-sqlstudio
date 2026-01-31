@@ -182,15 +182,110 @@ public class SqliteService : IDisposable
         var columns = new List<string>();
         foreach (DataColumn col in data.Columns)
         {
-            // SQLite è typeless, usiamo TEXT per tutto
-            columns.Add($"[{col.ColumnName}] TEXT");
+            var sqliteType = DetectSqliteType(data, col);
+            columns.Add($"[{col.ColumnName}] {sqliteType}");
         }
         return $"CREATE TABLE [{tableName}] ({string.Join(", ", columns)})";
+    }
+
+    private string DetectSqliteType(DataTable data, DataColumn column)
+    {
+        // SQLite types: NULL, INTEGER, REAL, TEXT, BLOB
+        // We map .NET types to SQLite types
+        
+        // Get regional settings from DataTable if available
+        var dateFormat = data.ExtendedProperties["DateFormat"]?.ToString() ?? "auto";
+        var decimalSeparator = data.ExtendedProperties["DecimalSeparator"]?.ToString() ?? ".";
+        
+        // If all values are DBNull or empty, default to TEXT
+        if (data.Rows.Count == 0)
+            return "TEXT";
+        
+        // Random sampling of up to 100 rows instead of first 100
+        var random = new Random();
+        var totalRows = data.Rows.Count;
+        var sampleSize = Math.Min(100, totalRows);
+        
+        var sampledIndices = Enumerable.Range(0, totalRows)
+            .OrderBy(x => random.Next())
+            .Take(sampleSize)
+            .ToList();
+        
+        var samples = sampledIndices
+            .Select(i => data.Rows[i][column])
+            .Where(val => val != null && val != DBNull.Value && !string.IsNullOrWhiteSpace(val.ToString()))
+            .ToList();
+        
+        if (!samples.Any())
+            return "TEXT";
+        
+        // Boolean -> INTEGER (0/1)
+        if (samples.All(v => v is bool || (v is string s && bool.TryParse(s, out _))))
+            return "INTEGER";
+        
+        // Integer types
+        if (samples.All(v => v is sbyte || v is byte || v is short || v is ushort || 
+                             v is int || v is uint || v is long || v is ulong ||
+                             (v is string s && long.TryParse(s, out _))))
+            return "INTEGER";
+        
+        // Floating point types - use decimal separator setting
+        if (samples.All(v => v is float || v is double || v is decimal ||
+                             (v is string s && TryParseDecimal(s, decimalSeparator))))
+            return "REAL";
+        
+        // DateTime types - use date format setting
+        if (samples.All(v => v is DateTime || v is DateTimeOffset ||
+                             (v is string s && TryParseDateTime(s, dateFormat))))
+            return "TEXT"; // SQLite stores dates as TEXT (ISO 8601)
+        
+        // Default to TEXT
+        return "TEXT";
+    }
+    
+    private bool TryParseDecimal(string value, string decimalSeparator)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+        
+        // Replace the decimal separator with invariant culture separator
+        var normalized = decimalSeparator == "," 
+            ? value.Replace(",", ".").Replace(" ", "")
+            : value.Replace(" ", "");
+        
+        return double.TryParse(normalized, System.Globalization.NumberStyles.Any, 
+            System.Globalization.CultureInfo.InvariantCulture, out _);
+    }
+    
+    private bool TryParseDateTime(string value, string dateFormat)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+        
+        // Check if it has typical date separators
+        if (!value.Contains('-') && !value.Contains('/') && !value.Contains('.'))
+            return false;
+        
+        // Try parsing with specific format if not "auto"
+        if (dateFormat != "auto")
+        {
+            var formats = new[] { dateFormat, dateFormat + " HH:mm", dateFormat + " HH:mm:ss" };
+            return DateTime.TryParseExact(value, formats, 
+                System.Globalization.CultureInfo.InvariantCulture, 
+                System.Globalization.DateTimeStyles.None, out _);
+        }
+        
+        // Auto detection: try standard parsing
+        return DateTime.TryParse(value, out _);
     }
 
     private void InsertData(DataTable data, string tableName)
     {
         if (_connection == null || data.Rows.Count == 0) return;
+
+        // Get regional settings
+        var dateFormat = data.ExtendedProperties["DateFormat"]?.ToString() ?? "auto";
+        var decimalSeparator = data.ExtendedProperties["DecimalSeparator"]?.ToString() ?? ".";
 
         using var transaction = _connection.BeginTransaction();
 
@@ -207,13 +302,92 @@ public class SqliteService : IDisposable
             for (int i = 0; i < data.Columns.Count; i++)
             {
                 var value = row[i];
-                // Fix: Use DBNull.Value instead of null
-                cmd.Parameters.AddWithValue($"@p{i}", value == DBNull.Value ? DBNull.Value : (object)(value?.ToString() ?? ""));
+                
+                if (value == null || value == DBNull.Value)
+                {
+                    cmd.Parameters.AddWithValue($"@p{i}", DBNull.Value);
+                }
+                else
+                {
+                    // Convert value to appropriate type for SQLite
+                    var convertedValue = ConvertValueForSqlite(value, dateFormat, decimalSeparator);
+                    cmd.Parameters.AddWithValue($"@p{i}", convertedValue);
+                }
             }
             cmd.ExecuteNonQuery();
         }
 
         transaction.Commit();
+    }
+
+    private object ConvertValueForSqlite(object value, string dateFormat, string decimalSeparator)
+    {
+        if (value == null || value == DBNull.Value)
+            return DBNull.Value;
+        
+        // Boolean to INTEGER (0/1)
+        if (value is bool b)
+            return b ? 1 : 0;
+        
+        // String that looks like boolean
+        if (value is string str)
+        {
+            if (bool.TryParse(str, out var boolVal))
+                return boolVal ? 1 : 0;
+            
+            // Try to parse as integer
+            if (long.TryParse(str, out var longVal))
+                return longVal;
+            
+            // Try to parse as decimal/double with regional separator
+            var normalizedStr = decimalSeparator == "," 
+                ? str.Replace(",", ".").Replace(" ", "")
+                : str.Replace(" ", "");
+                
+            if (double.TryParse(normalizedStr, System.Globalization.NumberStyles.Any, 
+                System.Globalization.CultureInfo.InvariantCulture, out var doubleVal))
+                return doubleVal;
+            
+            // Try to parse as DateTime with regional format
+            DateTime dateVal;
+            if (dateFormat != "auto")
+            {
+                var formats = new[] { dateFormat, dateFormat + " HH:mm", dateFormat + " HH:mm:ss" };
+                if (DateTime.TryParseExact(str, formats, 
+                    System.Globalization.CultureInfo.InvariantCulture, 
+                    System.Globalization.DateTimeStyles.None, out dateVal))
+                {
+                    // Store DateTime in ISO 8601 format for SQLite
+                    return dateVal.ToString("yyyy-MM-dd HH:mm:ss");
+                }
+            }
+            else if (DateTime.TryParse(str, out dateVal))
+            {
+                // Store DateTime in ISO 8601 format for SQLite
+                return dateVal.ToString("yyyy-MM-dd HH:mm:ss");
+            }
+            
+            // Keep as string
+            return str;
+        }
+        
+        // DateTime to ISO 8601 string
+        if (value is DateTime dt)
+            return dt.ToString("yyyy-MM-dd HH:mm:ss");
+        
+        if (value is DateTimeOffset dto)
+            return dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss");
+        
+        // Numeric types - let SQLite handle them
+        if (value is sbyte || value is byte || value is short || value is ushort ||
+            value is int || value is uint || value is long || value is ulong)
+            return value;
+        
+        if (value is float || value is double || value is decimal)
+            return value;
+        
+        // Default: convert to string
+        return value.ToString() ?? "";
     }
 
     public void Dispose()

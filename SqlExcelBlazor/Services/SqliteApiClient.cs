@@ -61,7 +61,7 @@ public class SqliteApiClient
     /// <summary>
     /// Carica un file CSV in SQLite nel backend
     /// </summary>
-    public async Task<UploadResult> UploadCsvAsync(Stream fileStream, string fileName, string? tableName = null, string separator = ";")
+    public async Task<UploadResult> UploadCsvAsync(Stream fileStream, string fileName, string? tableName = null, string separator = ";", string dateFormat = "dd/MM/yyyy", string decimalSeparator = ",")
     {
         try
         {
@@ -74,6 +74,8 @@ public class SqliteApiClient
                 content.Add(new StringContent(tableName), "tableName");
             }
             content.Add(new StringContent(separator), "separator");
+            content.Add(new StringContent(dateFormat), "dateFormat");
+            content.Add(new StringContent(decimalSeparator), "decimalSeparator");
 
             var response = await _httpClient.PostAsync("api/sqlite/upload-csv", content);
             var json = await response.Content.ReadAsStringAsync();

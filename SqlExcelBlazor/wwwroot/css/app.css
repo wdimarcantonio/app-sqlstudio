@@ -904,6 +904,25 @@ label {
     flex: 1;
 }
 
+.results-grid-container::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.results-grid-container::-webkit-scrollbar-track {
+    background: var(--card);
+    border-radius: 6px;
+}
+
+.results-grid-container::-webkit-scrollbar-thumb {
+    background: var(--primary);
+    border-radius: 6px;
+}
+
+.results-grid-container::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-dark);
+}
+
 .empty-state-small {
     padding: 2rem;
     text-align: center;
@@ -1478,6 +1497,31 @@ main {
     justify-content: flex-end;
     gap: 0.5rem;
     margin-top: 0.5rem;
+}
+
+.filter-menu input[type="date"],
+.filter-menu input[type="number"],
+.filter-menu input[type="text"] {
+    margin-top: 0.5rem;
+}
+
+.filter-menu input[type="number"]:not(:last-of-type),
+.filter-menu input[type="date"]:not(:last-of-type),
+.filter-menu input[type="text"]:not(:last-of-type) {
+    margin-bottom: 0.25rem;
+}
+
+/* Date input with Italian mask */
+.date-mask-it,
+.datetime-mask-it {
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.05em;
+}
+
+.date-mask-it::placeholder,
+.datetime-mask-it::placeholder {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    letter-spacing: normal;
 }
 
 .grid-footer {
