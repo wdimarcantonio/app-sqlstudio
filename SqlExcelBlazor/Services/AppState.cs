@@ -3,7 +3,7 @@ using SqlExcelBlazor.Models;
 namespace SqlExcelBlazor.Services;
 
 /// <summary>
-/// Stato globale dell'applicazione (Singleton)
+/// Stato dell'applicazione per sessione utente (Scoped)
 /// </summary>
 public class AppState
 {
