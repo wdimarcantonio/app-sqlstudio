@@ -31,26 +31,31 @@ public class SqliteController : ControllerBase
     /// </summary>
     private SqliteService GetSessionSqliteService()
     {
-        var session = _httpContextAccessor.HttpContext?.Session;
-        if (session == null)
-        {
-            _logger.LogError("Session not available in HttpContext");
-            throw new InvalidOperationException(
-                "Session not available. Ensure that session middleware is enabled.");
-        }
-        
-        // Access session to ensure it's loaded and has an ID
-        // This triggers session creation if it doesn't exist yet
-        _ = session.IsAvailable;
-        
-        var sessionId = session.Id;
-        _logger.LogInformation("Session ID retrieved: {SessionId}", sessionId);
+        // Prima prova a ottenere Session ID dall'header personalizzato (per Blazor WASM)
+        var sessionId = _httpContextAccessor.HttpContext?.Request.Headers["X-Session-Id"].FirstOrDefault();
         
         if (string.IsNullOrEmpty(sessionId))
         {
-            _logger.LogError("Session ID is null or empty after accessing session");
-            throw new InvalidOperationException(
-                "Session ID not available. Ensure that session middleware is enabled and the request includes a valid session cookie.");
+            // Fallback: prova con i cookie di sessione tradizionali
+            var session = _httpContextAccessor.HttpContext?.Session;
+            if (session == null)
+            {
+                _logger.LogError("Session not available in HttpContext");
+                throw new InvalidOperationException(
+                    "Session not available. Ensure that session middleware is enabled.");
+            }
+            
+            _ = session.IsAvailable;
+            sessionId = session.Id;
+        }
+        
+        _logger.LogInformation("Session ID retrieved: {SessionId} (from header: {FromHeader})", 
+            sessionId, _httpContextAccessor.HttpContext?.Request.Headers.ContainsKey("X-Session-Id") ?? false);
+        
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            _logger.LogError("Session ID is null or empty");
+            throw new InvalidOperationException("Session ID not available.");
         }
         
         var sqliteService = _workspaceManager.GetWorkspace(sessionId);
@@ -66,6 +71,8 @@ public class SqliteController : ControllerBase
     [HttpPost("excel/upload-temp")]
     public async Task<IActionResult> UploadTempExcel(IFormFile file)
     {
+        _logger.LogInformation("UploadTempExcel called with file: {FileName}", file?.FileName ?? "null");
+        
         if (file == null || file.Length == 0) return BadRequest("No file uploaded");
         
         using var stream = new MemoryStream();
@@ -73,6 +80,7 @@ public class SqliteController : ControllerBase
         var data = stream.ToArray();
         
         var id = _excelService.AddTempFile(data, file.FileName);
+        _logger.LogInformation("Temp file stored with ID: {FileId}", id);
         return Ok(new { fileId = id, fileName = file.FileName });
     }
 
@@ -310,6 +318,46 @@ public class SqliteController : ControllerBase
         var tables = sqliteService.LoadedTables;
         _logger.LogInformation("Returning {Count} tables: {Tables}", tables.Count, string.Join(", ", tables));
         return Ok(new { tables });
+    }
+
+    [HttpGet("tables-info")]
+    public async Task<IActionResult> GetTablesInfo()
+    {
+        _logger.LogInformation("GetTablesInfo called");
+        var sqliteService = GetSessionSqliteService();
+        var tablesInfo = new List<object>();
+        
+        foreach (var tableName in sqliteService.LoadedTables)
+        {
+            try
+            {
+                // Get row count
+                var countResult = await sqliteService.ExecuteQueryAsync($"SELECT COUNT(*) as count FROM [{tableName}]");
+                var rowCount = 0;
+                if (countResult.IsSuccess && countResult.Rows.Count > 0)
+                {
+                    rowCount = Convert.ToInt32(countResult.Rows[0]["count"]);
+                }
+                
+                // Get columns
+                var columnsResult = await sqliteService.ExecuteQueryAsync($"PRAGMA table_info([{tableName}])");
+                var columns = columnsResult.Rows.Select(r => r["name"]?.ToString() ?? "").Where(c => !string.IsNullOrEmpty(c)).ToList();
+                
+                tablesInfo.Add(new
+                {
+                    tableName,
+                    rowCount,
+                    columns
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting info for table {TableName}", tableName);
+            }
+        }
+        
+        _logger.LogInformation("Returning info for {Count} tables", tablesInfo.Count);
+        return Ok(new { tables = tablesInfo });
     }
 
     [HttpPost("rename-table")]

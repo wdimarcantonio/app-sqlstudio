@@ -11,11 +11,11 @@ builder.Services.AddSession(options =>
     options.IdleTimeout = TimeSpan.FromMinutes(30);
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
-    // SameSite.None is required for cross-origin cookies with credentials
-    // In Blazor WASM, the client makes requests that might be treated as cross-origin
+    
+    // SameSite.None with Secure=true works with HTTPS (even on localhost)
     options.Cookie.SameSite = SameSiteMode.None;
-    // Secure is required when using SameSite.None
     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    
     // Set explicit cookie name for easier debugging
     options.Cookie.Name = ".SqlStudio.Session";
 });

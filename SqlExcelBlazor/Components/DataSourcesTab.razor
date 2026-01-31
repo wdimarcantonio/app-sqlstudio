@@ -138,7 +138,47 @@
     // CSV State
     private IBrowserFile? pendingCsvFile;
 
-    private Dictionary<string, string> pendingRenames = new(); 
+    private Dictionary<string, string> pendingRenames = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Carica le tabelle esistenti dalla sessione
+        await LoadExistingTables();
+    }
+
+    private async Task LoadExistingTables()
+    {
+        try
+        {
+            var tablesInfo = await SqliteApi.GetTablesInfoAsync();
+            foreach (var tableInfo in tablesInfo)
+            {
+                // Controlla se la tabella è già nell'AppState
+                if (!AppState.DataSources.Any(ds => ds.TableAlias == tableInfo.TableName))
+                {
+                    var ds = new DataSource
+                    {
+                        Name = tableInfo.TableName,
+                        Type = DataSourceType.Excel,
+                        TableAlias = tableInfo.TableName,
+                        RowCount = tableInfo.RowCount,
+                        Columns = tableInfo.Columns,
+                        IsLoaded = true,
+                        State = new GridState()
+                    };
+                    
+                    AppState.AddDataSource(ds);
+                    
+                    // Carica i primi dati
+                    await ReloadDataSource(ds);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"Error loading existing tables: {ex.Message}");
+        }
+    }
 
     private void UpdateAliasValue(DataSource ds, string newValue)
     {

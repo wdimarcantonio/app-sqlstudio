@@ -8,15 +8,15 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-// Configure HttpClient with message handler for credentials (session cookies)
-builder.Services.AddTransient<CookieHandler>();
+// Configure HttpClient with session handler
+builder.Services.AddScoped<SessionHandler>();
 
 // Use AddHttpClient to properly configure with base address and message handler
 builder.Services.AddHttpClient("default", client =>
 {
     client.BaseAddress = new Uri(builder.HostEnvironment.BaseAddress);
 })
-.AddHttpMessageHandler<CookieHandler>();
+.AddHttpMessageHandler<SessionHandler>();
 
 // Register a scoped HttpClient that uses the named client
 builder.Services.AddScoped(sp =>

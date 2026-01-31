@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 
 namespace SqlExcelBlazor.Server.Services;
 
@@ -9,6 +10,12 @@ namespace SqlExcelBlazor.Server.Services;
 public class WorkspaceManager : IWorkspaceManager
 {
     private readonly ConcurrentDictionary<string, WorkspaceEntry> _workspaces = new();
+    private readonly ILoggerFactory _loggerFactory;
+
+    public WorkspaceManager(ILoggerFactory loggerFactory)
+    {
+        _loggerFactory = loggerFactory;
+    }
 
     private class WorkspaceEntry
     {
@@ -33,7 +40,7 @@ public class WorkspaceManager : IWorkspaceManager
 
         var entry = _workspaces.GetOrAdd(sessionId, _ => new WorkspaceEntry
         {
-            Service = new SqliteService(),
+            Service = new SqliteService(_loggerFactory.CreateLogger<SqliteService>()),
             LastAccessed = DateTime.UtcNow
         });
 

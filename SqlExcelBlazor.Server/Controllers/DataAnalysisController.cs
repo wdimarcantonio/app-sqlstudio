@@ -28,23 +28,28 @@ public class DataAnalysisController : ControllerBase
     /// </summary>
     private SqliteService GetSessionSqliteService()
     {
-        var session = _httpContextAccessor.HttpContext?.Session;
-        if (session == null)
-        {
-            throw new InvalidOperationException(
-                "Session not available. Ensure that session middleware is enabled.");
-        }
+        // Prima prova a ottenere Session ID dall'header personalizzato (per Blazor WASM)
+        var sessionId = _httpContextAccessor.HttpContext?.Request.Headers["X-Session-Id"].FirstOrDefault();
         
-        // Access session to ensure it's loaded and has an ID
-        // This triggers session creation if it doesn't exist yet
-        _ = session.IsAvailable;
-        
-        var sessionId = session.Id;
         if (string.IsNullOrEmpty(sessionId))
         {
-            throw new InvalidOperationException(
-                "Session ID not available. Ensure that session middleware is enabled and the request includes a valid session cookie.");
+            // Fallback: prova con i cookie di sessione tradizionali
+            var session = _httpContextAccessor.HttpContext?.Session;
+            if (session == null)
+            {
+                throw new InvalidOperationException(
+                    "Session not available. Ensure that session middleware is enabled.");
+            }
+            
+            _ = session.IsAvailable;
+            sessionId = session.Id;
         }
+        
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            throw new InvalidOperationException("Session ID not available.");
+        }
+        
         return _workspaceManager.GetWorkspace(sessionId);
     }
 

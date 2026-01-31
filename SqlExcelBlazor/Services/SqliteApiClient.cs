@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Components.WebAssembly.Http;
 
 namespace SqlExcelBlazor.Services;
 
@@ -168,6 +169,22 @@ public class SqliteApiClient
     }
 
     /// <summary>
+    /// Ottiene informazioni dettagliate sulle tabelle caricate
+    /// </summary>
+    public async Task<List<TableInfo>> GetTablesInfoAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<TablesInfoResponse>("api/sqlite/tables-info");
+            return response?.Tables ?? new List<TableInfo>();
+        }
+        catch
+        {
+            return new List<TableInfo>();
+        }
+    }
+
+    /// <summary>
     /// Analyzes a table and returns detailed statistics
     /// </summary>
     public async Task<AnalysisResponse> AnalyzeTableAsync(string tableName, int topValueCount = 20)
@@ -247,7 +264,11 @@ public class SqliteApiClient
          using var streamContent = new StreamContent(fileStream);
          content.Add(streamContent, "file", fileName);
 
-         var response = await _httpClient.PostAsync("api/sqlite/excel/upload-temp", content);
+         using var request = new HttpRequestMessage(HttpMethod.Post, "api/sqlite/excel/upload-temp");
+         request.Content = content;
+         request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+         
+         var response = await _httpClient.SendAsync(request);
          if (response.IsSuccessStatusCode)
          {
              var json = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -342,6 +363,18 @@ public class SqliteQueryResult
 public class TablesResponse
 {
     public List<string> Tables { get; set; } = new();
+}
+
+public class TablesInfoResponse
+{
+    public List<TableInfo> Tables { get; set; } = new();
+}
+
+public class TableInfo
+{
+    public string TableName { get; set; } = "";
+    public int RowCount { get; set; }
+    public List<string> Columns { get; set; } = new();
 }
 
 public class AnalysisResponse
