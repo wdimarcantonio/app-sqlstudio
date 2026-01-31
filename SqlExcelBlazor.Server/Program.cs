@@ -7,7 +7,8 @@ builder.Services.AddRazorPages();
 // Registra SQLite Service come Scoped (una istanza per ogni richiesta HTTP/sessione)
 // FIX: Cambiato da Singleton a Scoped per isolare le sessioni degli utenti
 builder.Services.AddScoped<SqlExcelBlazor.Server.Services.SqliteService>();
-builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
+// FIX: Cambiato da Singleton a Scoped perché mantiene stato dei file temporanei per sessione
+builder.Services.AddScoped<SqlExcelBlazor.Server.Services.ServerExcelService>();
 
 // Registra Data Analysis Services
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.PatternDetector>();
