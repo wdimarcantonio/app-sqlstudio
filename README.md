@@ -32,6 +32,14 @@ Applicazione WPF .NET 8 per importare file Excel/CSV, eseguire query SQL e espor
 - Esporta risultati in Excel (.xlsx)
 - Importa in database SQL Server
 
+### 🔒 Session Management (NEW!)
+- Isolamento completo delle sessioni utente tramite cookie
+- Ogni browser/tab riceve automaticamente il proprio workspace SQLite in-memory
+- Gestione automatica del ciclo di vita delle sessioni (timeout 30 minuti)
+- Pulizia automatica delle sessioni inattive (ogni 5 minuti)
+- API per gestione manuale delle sessioni (/api/sessions)
+- Nessuna interferenza tra utenti diversi - ogni sessione è completamente isolata
+
 ### 📊 Data Analysis (NEW!)
 - Analisi completa delle colonne con statistiche dettagliate
 - Rilevamento automatico dei tipi di dato
@@ -73,7 +81,10 @@ SqlExcelApp/
 │   ├── ExcelService.cs        # Import/export Excel (ClosedXML)
 │   ├── CsvService.cs          # Import/export CSV
 │   ├── QueryService.cs        # Esecuzione query SQLite in-memory
-│   └── SqlServerService.cs    # Export verso SQL Server
+│   ├── SqlServerService.cs    # Export verso SQL Server
+│   ├── WorkspaceManager.cs    # Gestione sessioni utente (NEW!)
+│   ├── IWorkspaceManager.cs   # Interface per gestione sessioni
+│   └── SessionCleanupService.cs # Pulizia automatica sessioni
 ├── ViewModels/
 │   └── MainViewModel.cs       # ViewModel principale (MVVM)
 ├── Views/
@@ -83,6 +94,30 @@ SqlExcelApp/
 └── Converters/
     └── BoolConverters.cs      # Converters WPF
 ```
+
+## Architettura Session Management
+
+Il sistema utilizza un'architettura multi-utente con isolamento completo delle sessioni:
+
+- **Session Middleware (ASP.NET Core)**: Gestisce sessioni automatiche tramite cookie (timeout 30 minuti)
+- **WorkspaceManager (Singleton)**: Crea e gestisce workspace SQLite isolati per ogni session ID
+- **SqliteService (Per Sessione)**: Ogni sessione riceve il proprio database in-memory completamente isolato
+- **SessionCleanupService (Background)**: Rimuove automaticamente le sessioni inattive (> 30 minuti, ogni 5 minuti)
+- **SessionsController (API)**: Endpoint REST per monitoraggio e gestione manuale delle sessioni
+
+### Come Funziona
+
+1. **L'utente apre l'app** → ASP.NET Core crea automaticamente una sessione con ID univoco (salvato in cookie)
+2. **L'utente importa una tabella** → WorkspaceManager crea un SqliteService isolato per quella sessione
+3. **L'utente esegue query** → Usa sempre lo stesso SqliteService con i propri dati
+4. **Browser/tab diverso** → Nuova sessione → Nuovo SqliteService completamente separato
+
+### Isolamento Garantito
+
+- Ogni sessione ha il proprio database SQLite in-memory dedicato
+- Le tabelle e i dati sono completamente separati tra sessioni
+- Nessuna possibilità di interferenza o accesso ai dati di altre sessioni
+- Session ID gestito automaticamente tramite cookie HTTP
 
 ## Tecnologie
 

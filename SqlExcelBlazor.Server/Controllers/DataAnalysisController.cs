@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using SqlExcelBlazor.Server.Models.Analysis;
+using SqlExcelBlazor.Server.Services;
 using SqlExcelBlazor.Server.Services.Analysis;
 
 namespace SqlExcelBlazor.Server.Controllers;
@@ -9,10 +10,47 @@ namespace SqlExcelBlazor.Server.Controllers;
 public class DataAnalysisController : ControllerBase
 {
     private readonly IDataAnalyzerService _analyzerService;
+    private readonly IWorkspaceManager _workspaceManager;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public DataAnalysisController(IDataAnalyzerService analyzerService)
+    public DataAnalysisController(
+        IDataAnalyzerService analyzerService,
+        IWorkspaceManager workspaceManager,
+        IHttpContextAccessor httpContextAccessor)
     {
         _analyzerService = analyzerService;
+        _workspaceManager = workspaceManager;
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    /// <summary>
+    /// Gets the session-specific SqliteService for the current user
+    /// </summary>
+    private SqliteService GetSessionSqliteService()
+    {
+        // Prima prova a ottenere Session ID dall'header personalizzato (per Blazor WASM)
+        var sessionId = _httpContextAccessor.HttpContext?.Request.Headers["X-Session-Id"].FirstOrDefault();
+        
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            // Fallback: prova con i cookie di sessione tradizionali
+            var session = _httpContextAccessor.HttpContext?.Session;
+            if (session == null)
+            {
+                throw new InvalidOperationException(
+                    "Session not available. Ensure that session middleware is enabled.");
+            }
+            
+            _ = session.IsAvailable;
+            sessionId = session.Id;
+        }
+        
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            throw new InvalidOperationException("Session ID not available.");
+        }
+        
+        return _workspaceManager.GetWorkspace(sessionId);
     }
 
     /// <summary>
@@ -33,7 +71,8 @@ public class DataAnalysisController : ControllerBase
                 EnableParallelProcessing = request.EnableParallelProcessing ?? true
             };
 
-            var analysis = await _analyzerService.AnalyzeTableAsync(request.TableName, config);
+            var sqliteService = GetSessionSqliteService();
+            var analysis = await _analyzerService.AnalyzeTableAsync(sqliteService, request.TableName, config);
             
             return Ok(new { success = true, analysis });
         }
