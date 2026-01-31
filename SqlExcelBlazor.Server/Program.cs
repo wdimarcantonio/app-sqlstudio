@@ -1,7 +1,20 @@
+using Microsoft.EntityFrameworkCore;
+using SqlExcelBlazor.Server.Data;
+using SqlExcelBlazor.Server.Repositories;
+using SqlExcelBlazor.Server.Services;
+using System.Text.Json.Serialization;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddControllersWithViews();
+builder.Services.AddControllersWithViews()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        // Add polymorphic serialization support
+        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+    });
 builder.Services.AddRazorPages();
 
 // Add session support for session isolation
@@ -26,8 +39,17 @@ builder.Services.AddHttpContextAccessor();
 // Add WorkspaceManager as Singleton (manages all sessions)
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.IWorkspaceManager, SqlExcelBlazor.Server.Services.WorkspaceManager>();
 
+// Register DbContext with SQLite for development
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") 
+        ?? "Data Source=app-sqlstudio.db"));
+
 // Other services
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.ServerExcelService>();
+
+// Register Connection Services
+builder.Services.AddScoped<IConnectionRepository, ConnectionRepository>();
+builder.Services.AddScoped<IConnectionService, ConnectionService>();
 
 // Add background service for cleanup
 builder.Services.AddHostedService<SqlExcelBlazor.Server.Services.SessionCleanupService>();
