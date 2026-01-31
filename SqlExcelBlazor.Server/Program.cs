@@ -11,7 +11,13 @@ builder.Services.AddSession(options =>
     options.IdleTimeout = TimeSpan.FromMinutes(30);
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
-    options.Cookie.SameSite = SameSiteMode.Lax;
+    // SameSite.None is required for cross-origin cookies with credentials
+    // In Blazor WASM, the client makes requests that might be treated as cross-origin
+    options.Cookie.SameSite = SameSiteMode.None;
+    // Secure is required when using SameSite.None
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    // Set explicit cookie name for easier debugging
+    options.Cookie.Name = ".SqlStudio.Session";
 });
 
 // Add HttpContextAccessor (needed for SessionId)
@@ -77,9 +83,11 @@ app.UseStaticFiles();
 
 app.UseRouting();
 
-app.UseSession();
-
+// CORS must come BEFORE Session so that CORS headers are set before session cookie is sent
 app.UseCors("AllowAll");
+
+// Session middleware must come AFTER CORS but BEFORE endpoints
+app.UseSession();
 
 app.MapRazorPages();
 app.MapControllers();
