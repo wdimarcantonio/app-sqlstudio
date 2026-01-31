@@ -33,14 +33,29 @@ builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.QualitySco
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.ColumnAnalyzer>();
 builder.Services.AddSingleton<SqlExcelBlazor.Server.Services.Analysis.IDataAnalyzerService, SqlExcelBlazor.Server.Services.Analysis.DataAnalyzerService>();
 
-// Configure CORS to allow calls from client (in development)
+// Configure CORS to allow calls from client (in development)  
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll",
-        builder => builder
-        .AllowAnyOrigin()
-        .AllowAnyMethod()
-        .AllowAnyHeader());
+        policy =>
+        {
+            if (builder.Environment.IsDevelopment())
+            {
+                // In development, allow localhost with credentials
+                policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost")
+                      .AllowAnyMethod()
+                      .AllowAnyHeader()
+                      .AllowCredentials();
+            }
+            else
+            {
+                // In production, configure specific origins
+                policy.WithOrigins("https://yourdomain.com")
+                      .AllowAnyMethod()
+                      .AllowAnyHeader()
+                      .AllowCredentials();
+            }
+        });
 });
 
 var app = builder.Build();

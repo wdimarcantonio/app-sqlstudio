@@ -12,15 +12,18 @@ public class SqliteController : ControllerBase
     private readonly IWorkspaceManager _workspaceManager;
     private readonly ServerExcelService _excelService;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ILogger<SqliteController> _logger;
 
     public SqliteController(
         IWorkspaceManager workspaceManager, 
         ServerExcelService excelService,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        ILogger<SqliteController> logger)
     {
         _workspaceManager = workspaceManager;
         _excelService = excelService;
         _httpContextAccessor = httpContextAccessor;
+        _logger = logger;
     }
 
     /// <summary>
@@ -31,6 +34,7 @@ public class SqliteController : ControllerBase
         var session = _httpContextAccessor.HttpContext?.Session;
         if (session == null)
         {
+            _logger.LogError("Session not available in HttpContext");
             throw new InvalidOperationException(
                 "Session not available. Ensure that session middleware is enabled.");
         }
@@ -40,12 +44,20 @@ public class SqliteController : ControllerBase
         _ = session.IsAvailable;
         
         var sessionId = session.Id;
+        _logger.LogInformation("Session ID retrieved: {SessionId}", sessionId);
+        
         if (string.IsNullOrEmpty(sessionId))
         {
+            _logger.LogError("Session ID is null or empty after accessing session");
             throw new InvalidOperationException(
                 "Session ID not available. Ensure that session middleware is enabled and the request includes a valid session cookie.");
         }
-        return _workspaceManager.GetWorkspace(sessionId);
+        
+        var sqliteService = _workspaceManager.GetWorkspace(sessionId);
+        _logger.LogInformation("SqliteService retrieved for session {SessionId}, LoadedTables count: {Count}", 
+            sessionId, sqliteService.LoadedTables.Count);
+        
+        return sqliteService;
     }
 
     /// <summary>
@@ -108,16 +120,31 @@ public class SqliteController : ControllerBase
     [HttpPost("excel/import-sheet")]
     public async Task<IActionResult> ImportExcelSheet([FromBody] ImportSheetRequest request)
     {
+        _logger.LogInformation("ImportExcelSheet called for table: {TableName}, FileId: {FileId}", 
+            request.TableName, request.FileId);
+        
         var temp = _excelService.GetTempFile(request.FileId);
-        if (temp == null) return NotFound("File not found or expired");
+        if (temp == null)
+        {
+            _logger.LogWarning("Temp file not found: {FileId}", request.FileId);
+            return NotFound("File not found or expired");
+        }
 
         try
         {
             using var stream = new MemoryStream(temp.Value.Data);
             var dt = _excelService.GetAllData(stream, temp.Value.FileName, request.SheetName);
             
+            _logger.LogInformation("Data loaded from Excel: {RowCount} rows, {ColumnCount} columns", 
+                dt.Rows.Count, dt.Columns.Count);
+            
             var sqliteService = GetSessionSqliteService();
+            _logger.LogInformation("About to call LoadTableAsync for table: {TableName}", request.TableName);
+            
             await sqliteService.LoadTableAsync(dt, request.TableName);
+            
+            _logger.LogInformation("LoadTableAsync completed. Current LoadedTables: {Tables}", 
+                string.Join(", ", sqliteService.LoadedTables));
             
             return Ok(new
             {
@@ -278,8 +305,11 @@ public class SqliteController : ControllerBase
     [HttpGet("tables")]
     public IActionResult GetTables()
     {
+        _logger.LogInformation("GetTables called");
         var sqliteService = GetSessionSqliteService();
-        return Ok(new { tables = sqliteService.LoadedTables });
+        var tables = sqliteService.LoadedTables;
+        _logger.LogInformation("Returning {Count} tables: {Tables}", tables.Count, string.Join(", ", tables));
+        return Ok(new { tables });
     }
 
     [HttpPost("rename-table")]
