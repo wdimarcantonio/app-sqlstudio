@@ -30,6 +30,9 @@ builder.Services.AddSingleton<AppState>();
 builder.Services.AddScoped<SqlServerClientService>();
 builder.Services.AddSingleton<NotificationService>();
 
+// Register Connection Service
+builder.Services.AddScoped<IConnectionService, ConnectionService>();
+
 // Registra client API SQLite
 builder.Services.AddScoped<SqliteApiClient>();
 

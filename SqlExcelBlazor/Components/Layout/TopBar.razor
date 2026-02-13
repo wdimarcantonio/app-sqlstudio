@@ -1,0 +1,54 @@
+@* TopBar Component *@
+<div class="topbar">
+    <div class="topbar-content">
+        <div class="topbar-left">
+            <h2 class="topbar-title">@Title</h2>
+        </div>
+        <div class="topbar-right">
+            <span class="user-info">👤 User</span>
+        </div>
+    </div>
+</div>
+
+<style>
+.topbar {
+    height: var(--topbar-height);
+    background: white;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 var(--spacing-lg);
+}
+
+.topbar-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.topbar-title {
+    margin: 0;
+    font-size: var(--text-xl);
+    color: var(--text-primary);
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.user-info:hover {
+    background: var(--bg-light);
+}
+</style>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = "SqlStudio ETL";
+}
