@@ -83,6 +83,29 @@ public class SqliteService : IDisposable
     }
 
     /// <summary>
+    /// OTTIMIZZAZIONE: Aggiunge dati a una tabella esistente senza ricrearla
+    /// Utile per importazioni paginate da SQL Server
+    /// </summary>
+    public async Task AppendDataToTableAsync(DataTable data, string tableName)
+    {
+        await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                EnsureConnection();
+
+                if (!_loadedTables.Contains(tableName))
+                {
+                    throw new InvalidOperationException($"Table '{tableName}' not found. Use LoadTableAsync to create it first.");
+                }
+
+                // Inserisce solo i dati senza ricreare la tabella
+                InsertData(data, tableName);
+            }
+        });
+    }
+
+    /// <summary>
     /// Elimina una tabella esistente
     /// </summary>
     public async Task DropTableAsync(string tableName)
@@ -180,20 +203,50 @@ public class SqliteService : IDisposable
 
         var columnNames = string.Join(", ",
             data.Columns.Cast<DataColumn>().Select(c => $"[{c.ColumnName}]"));
-        var parameters = string.Join(", ",
-            Enumerable.Range(0, data.Columns.Count).Select(i => $"@p{i}"));
-
-        var insertSql = $"INSERT INTO [{tableName}] ({columnNames}) VALUES ({parameters})";
-
-        foreach (DataRow row in data.Rows)
+        
+        // OTTIMIZZAZIONE: Batch insert per migliori performance
+        // Inserisce fino a 500 righe per statement invece di 1 riga alla volta
+        const int batchSize = 500;
+        int totalRows = data.Rows.Count;
+        
+        for (int startRow = 0; startRow < totalRows; startRow += batchSize)
         {
-            using var cmd = new SqliteCommand(insertSql, _connection, transaction);
-            for (int i = 0; i < data.Columns.Count; i++)
+            int rowsInBatch = Math.Min(batchSize, totalRows - startRow);
+            
+            // Costruisce INSERT con multiple righe: INSERT INTO table VALUES (...), (...), (...)
+            var valuesClauses = new List<string>();
+            var allParameters = new List<(string name, object? value)>();
+            
+            for (int batchIndex = 0; batchIndex < rowsInBatch; batchIndex++)
             {
-                var value = row[i];
-                // Fix: Use DBNull.Value instead of null
-                cmd.Parameters.AddWithValue($"@p{i}", value == DBNull.Value ? DBNull.Value : (object)(value?.ToString() ?? ""));
+                var rowIndex = startRow + batchIndex;
+                var row = data.Rows[rowIndex];
+                
+                // Crea placeholder per questa riga: (@p0_0, @p0_1, @p0_2, ...)
+                var rowParams = new List<string>();
+                for (int colIndex = 0; colIndex < data.Columns.Count; colIndex++)
+                {
+                    string paramName = $"@p{batchIndex}_{colIndex}";
+                    rowParams.Add(paramName);
+                    
+                    var value = row[colIndex];
+                    var paramValue = value == DBNull.Value ? DBNull.Value : (object)(value?.ToString() ?? "");
+                    allParameters.Add((paramName, paramValue));
+                }
+                
+                valuesClauses.Add($"({string.Join(", ", rowParams)})");
             }
+            
+            // Esegue batch insert
+            var batchInsertSql = $"INSERT INTO [{tableName}] ({columnNames}) VALUES {string.Join(", ", valuesClauses)}";
+            using var cmd = new SqliteCommand(batchInsertSql, _connection, transaction);
+            
+            // Aggiunge tutti i parametri
+            foreach (var (name, value) in allParameters)
+            {
+                cmd.Parameters.AddWithValue(name, value);
+            }
+            
             cmd.ExecuteNonQuery();
         }
 
