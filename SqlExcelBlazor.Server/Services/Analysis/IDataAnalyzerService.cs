@@ -7,7 +7,7 @@ namespace SqlExcelBlazor.Server.Services.Analysis;
 /// </summary>
 public interface IDataAnalyzerService
 {
-    Task<DataAnalysis> AnalyzeTableAsync(string tableName, AnalysisConfiguration? config = null);
+    Task<DataAnalysis> AnalyzeTableAsync(SqliteService sqliteService, string tableName, AnalysisConfiguration? config = null);
     DataAnalysis? GetAnalysis(int analysisId);
     List<DataAnalysis> GetAnalysisHistory(string sourceName);
 }

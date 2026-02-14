@@ -50,73 +50,13 @@
             }
             else
             {
-                <div class="data-grid-container">
-                    <table class="data-grid">
-                        <thead>
-                            <tr>
-                                @foreach (var col in AppState.LastResult.Columns)
-                                {
-                                    <th>@col</th>
-                                }
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @{
-                                try
-                                {
-                                    // Use GetPagedRows() instead of full list
-                                    foreach (var row in GetPagedRows())
-                                    {
-                                        <tr>
-                                            @foreach (var col in AppState.LastResult.Columns)
-                                            {
-                                                <td>@row.GetValueOrDefault(col)?.ToString()</td>
-                                            }
-                                        </tr>
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    <tr>
-                                        <td colspan="@AppState.LastResult.Columns.Count" style="color: red; padding: 1rem;">
-                                            <strong>ERRORE RENDERING:</strong> @ex.Message
-                                            <pre style="white-space: pre-wrap; font-size: 0.8em;">@ex.StackTrace</pre>
-                                        </td>
-                                    </tr>
-                                }
-                            }
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Pagination Controls -->
-                <div class="pagination-controls" style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; margin-top: 1rem; margin-bottom: 1rem; padding: 0.75rem; background: var(--surface); border: 1px solid var(--card); border-radius: 8px;">
-                    <div class="page-size" style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span style="font-size: 0.9rem; color: var(--text-secondary);">Righe per pagina:</span>
-                        <select value="@PageSize" @onchange="@(e => { PageSize = int.Parse(e.Value.ToString()); CurrentPage = 1; })" style="padding: 0.3rem; border-radius: 4px; background: var(--card); color: var(--text-primary); border: 1px solid var(--text-secondary);">
-                            <option value="10">10</option>
-                            <option value="25">25</option>
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                            <option value="500">500</option>
-                        </select>
-                    </div>
-
-                    <div class="page-nav" style="display: flex; gap: 0.5rem; align-items: center;">
-                        <button class="btn btn-sm btn-secondary" disabled="@(CurrentPage == 1)" @onclick="() => ChangePage(1)" title="Prima Pagina">⏮</button>
-                        <button class="btn btn-sm btn-secondary" disabled="@(CurrentPage == 1)" @onclick="() => ChangePage(CurrentPage - 1)" title="Pagina Precedente">◀</button>
-                        
-                        <span style="min-width: 100px; text-align: center; font-size: 0.9rem;">
-                            Pagina <strong style="color: var(--primary);">@CurrentPage</strong> di <strong>@TotalPages</strong>
-                        </span>
-                        
-                        <button class="btn btn-sm btn-secondary" disabled="@(CurrentPage == TotalPages)" @onclick="() => ChangePage(CurrentPage + 1)" title="Pagina Successiva">▶</button>
-                        <button class="btn btn-sm btn-secondary" disabled="@(CurrentPage == TotalPages)" @onclick="() => ChangePage(TotalPages)" title="Ultima Pagina">⏭</button>
-                    </div>
-                    
-                    <div class="total-info" style="font-size: 0.85rem; color: var(--text-secondary);">
-                        Totale righe: @(AppState.LastResult?.Rows?.Count ?? 0)
-                    </div>
+                <div style="height: 500px;">
+                    <AdvancedDataGrid 
+                        Columns="@AppState.LastResult.Columns" 
+                        Rows="@ConvertRowsToStringDictionary(AppState.LastResult.Rows)" 
+                        TotalCount="@AppState.LastResult.Rows.Count"
+                        State="@executionGridState"
+                        OnStateChanged="@HandleGridStateChange" />
                 </div>
                 
                 <!-- Export Buttons -->
@@ -143,9 +83,10 @@
         AppState.SqliteApi = SqliteApi;
         await AppState.ExecuteQueryWithSqliteAsync();
         CurrentPage = 1; // Reset pagination on new query
+        executionGridState = new GridState(); // Reset grid state
     }
 
-    // Pagination Logic
+    // Pagination Logic (no longer used with AdvancedDataGrid, kept for compatibility)
     private int CurrentPage { get; set; } = 1;
     private int PageSize { get; set; } = 50;
 
@@ -167,6 +108,27 @@
         {
             CurrentPage = newPage;
         }
+    }
+    
+    // Grid state for results
+    private GridState executionGridState = new();
+    
+    // Convert object? dictionaries to string dictionaries for AdvancedDataGrid
+    private List<Dictionary<string, string>> ConvertRowsToStringDictionary(List<Dictionary<string, object?>> rows)
+    {
+        return rows.Select(row => 
+            row.ToDictionary(
+                kvp => kvp.Key, 
+                kvp => kvp.Value?.ToString() ?? ""
+            )
+        ).ToList();
+    }
+    
+    // Handle grid state changes (sorting, filtering)
+    private void HandleGridStateChange(GridState newState)
+    {
+        executionGridState = newState;
+        StateHasChanged();
     }
     
     private async Task ExportExcel()

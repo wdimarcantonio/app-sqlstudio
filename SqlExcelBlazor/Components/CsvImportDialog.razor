@@ -28,6 +28,25 @@
                 <label>Nome Tabella (Alias)</label>
                 <input type="text" class="form-input" @bind="tableAlias" />
             </div>
+
+            <div class="form-group">
+                <label>Formato Date</label>
+                <select class="form-select" @bind="dateFormat">
+                    <option value="dd/MM/yyyy">Italiano (gg/MM/aaaa)</option>
+                    <option value="MM/dd/yyyy">Americano (MM/gg/aaaa)</option>
+                    <option value="yyyy-MM-dd">ISO (aaaa-MM-gg)</option>
+                    <option value="dd.MM.yyyy">Europeo (gg.MM.aaaa)</option>
+                    <option value="auto">Automatico</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Formato Numeri Decimali</label>
+                <select class="form-select" @bind="decimalSeparator">
+                    <option value=",">Virgola (es: 1,23)</option>
+                    <option value=".">Punto (es: 1.23)</option>
+                </select>
+            </div>
         </div>
         
         <div class="modal-footer">
@@ -38,11 +57,13 @@
 
 @code {
     [Parameter] public string FileName { get; set; } = "";
-    [Parameter] public EventCallback<(string Alias, string Separator)> OnConfirm { get; set; }
+    [Parameter] public EventCallback<(string Alias, string Separator, string DateFormat, string DecimalSeparator)> OnConfirm { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
 
     private string separator = ";";
     private string tableAlias = "";
+    private string dateFormat = "dd/MM/yyyy"; // Default: formato italiano
+    private string decimalSeparator = ","; // Default: virgola italiana
 
     protected override void OnInitialized()
     {
@@ -52,7 +73,7 @@
     private void Confirm()
     {
         if (string.IsNullOrWhiteSpace(tableAlias)) return;
-        OnConfirm.InvokeAsync((tableAlias, separator));
+        OnConfirm.InvokeAsync((tableAlias, separator, dateFormat, decimalSeparator));
     }
     
     private void Cancel()

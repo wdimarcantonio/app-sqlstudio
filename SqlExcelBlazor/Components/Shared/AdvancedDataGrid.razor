@@ -1,5 +1,4 @@
 @using SqlExcelBlazor.Models
-@using Microsoft.AspNetCore.Components.Web.Virtualization
 @inject IJSRuntime JS
 
 <div class="advanced-grid-container" @onmouseup="OnMouseUp" @onmousemove="OnMouseMove">
@@ -142,7 +141,7 @@
                 </tr>
             </thead>
             <tbody>
-                @if (FilteredAndSortedRows == null || FilteredAndSortedRows.Count == 0)
+                @if (Rows == null || Rows.Count == 0)
                 {
                     <tr>
                         <td colspan="@Columns.Count" class="empty-cell">Nessun dato</td>
@@ -150,16 +149,15 @@
                 }
                 else
                 {
-                    <Virtualize Items="@FilteredAndSortedRows" Context="row" OverscanCount="5">
+                    @foreach (var row in FilteredAndSortedRows)
+                    {
                         <tr>
                             @foreach (var col in Columns)
                             {
-                                <td style="@GetColStyle(col)">
-                                    @FormatCellValue(row.GetValueOrDefault(col, ""), col)
-                                </td>
+                                <td>@FormatCellValue(row.GetValueOrDefault(col, ""), col)</td>
                             }
                         </tr>
-                    </Virtualize>
+                    }
                 }
             </tbody>
         </table>
