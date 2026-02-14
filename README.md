@@ -1,12 +1,36 @@
 # SQL Excel App
 
-Applicazione WPF .NET 8 per importare file Excel/CSV, eseguire query SQL e esportare risultati.
+**Applicazione Blazor WebAssembly .NET 9 per importare file Excel/CSV, eseguire query SQL e analizzare dati.**
+
+## ⚠️ IMPORTANTE: Come Eseguire l'Applicazione
+
+Questo è un progetto **Hosted Blazor WebAssembly**. Per eseguirlo correttamente:
+
+### ✅ Metodo Corretto
+```bash
+cd SqlExcelBlazor.Server
+dotnet run
+```
+
+Poi apri il browser su: `http://localhost:5264`
+
+### ❌ NON eseguire il progetto client standalone
+```bash
+cd SqlExcelBlazor
+dotnet run  # ❌ Questo causa errori 404!
+```
+
+**Perché?** Il server hosta sia le API che il client Blazor. Eseguendo il client standalone, non troverà le API.
+
+Per dettagli sul problema 404, vedi: [FIX_404_EXCEL_IMPORT.md](FIX_404_EXCEL_IMPORT.md)
+
+---
 
 ## Requisiti
 
-- Windows 10/11
-- .NET 8.0 SDK
-- Visual Studio 2022 (opzionale)
+- .NET 9.0 SDK
+- Browser moderno (Chrome, Edge, Firefox)
+- (Opzionale) Visual Studio 2022 o VS Code
 
 ## Funzionalità
 
@@ -48,8 +72,8 @@ Per maggiori dettagli sulla funzionalità Data Analysis, consulta [DATA_ANALYSIS
 ## Compilazione
 
 ```bash
-# Dalla cartella del progetto
-cd SqlExcelApp
+# Dalla cartella del progetto server
+cd SqlExcelBlazor.Server
 dotnet restore
 dotnet build
 ```
@@ -57,41 +81,54 @@ dotnet build
 ## Esecuzione
 
 ```bash
+# IMPORTANTE: Eseguire sempre il progetto Server
+cd SqlExcelBlazor.Server
 dotnet run
 ```
+
+Poi apri il browser su: `http://localhost:5264` o `https://localhost:7146`
+
+### Visual Studio
+
+1. Imposta **SqlExcelBlazor.Server** come progetto di avvio
+2. Premi F5 o click su "Esegui"
+
+### Risoluzione Problemi
+
+Se ricevi errori 404 durante l'import Excel:
+- Verifica di aver eseguito **SqlExcelBlazor.Server** e non SqlExcelBlazor
+- Consulta: [FIX_404_EXCEL_IMPORT.md](FIX_404_EXCEL_IMPORT.md)
 
 ## Struttura Progetto
 
 ```
-SqlExcelApp/
-├── Models/
-│   ├── ColumnDefinition.cs    # Definizione colonne con trasformazioni
-│   ├── DataSource.cs          # Gestione multiple origini dati
-│   ├── QueryResult.cs         # Risultato query
-│   └── SqlServerConfig.cs     # Configurazione SQL Server
-├── Services/
-│   ├── ExcelService.cs        # Import/export Excel (ClosedXML)
-│   ├── CsvService.cs          # Import/export CSV
-│   ├── QueryService.cs        # Esecuzione query SQLite in-memory
-│   └── SqlServerService.cs    # Export verso SQL Server
-├── ViewModels/
-│   └── MainViewModel.cs       # ViewModel principale (MVVM)
-├── Views/
-│   └── MainWindow.xaml        # Interfaccia principale
-├── Styles/
-│   └── ModernTheme.xaml       # Tema dark moderno
-└── Converters/
-    └── BoolConverters.cs      # Converters WPF
+SqlExcelBlazor/                    # Client Blazor WebAssembly
+├── Components/                    # Componenti UI Razor
+├── Models/                        # Modelli dati
+├── Services/                      # Client services
+└── wwwroot/                       # File statici e CSS
+
+SqlExcelBlazor.Server/             # Server ASP.NET Core
+├── Controllers/                   # API Controllers
+│   ├── SqliteController.cs       # API import/query
+│   ├── SqlServerController.cs    # API SQL Server
+│   └── DataAnalysisController.cs # API analisi dati
+├── Services/                      # Server services
+│   ├── SqliteService.cs          # SQLite in-memory
+│   ├── ServerExcelService.cs     # Lettura Excel
+│   └── Analysis/                 # Servizi analisi
+└── Program.cs                    # Configurazione server
 ```
 
 ## Tecnologie
 
-- **.NET 8** - Framework
-- **WPF** - User Interface
-- **CommunityToolkit.Mvvm** - Pattern MVVM
-- **ClosedXML** - Lettura/scrittura Excel (MIT License)
+- **.NET 9** - Framework
+- **Blazor WebAssembly** - UI Framework
+- **ASP.NET Core** - Server API
+- **ClosedXML** - Lettura/scrittura Excel
 - **Microsoft.Data.Sqlite** - Database in-memory per query SQL
 - **Microsoft.Data.SqlClient** - Connessione SQL Server
+- **ExcelDataReader** - Lettura Excel alternativa
 
 ## Licenza
 
