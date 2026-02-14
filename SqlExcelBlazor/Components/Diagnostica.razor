@@ -1,0 +1,230 @@
+@page "/diagnostica"
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<h3>🔍 Diagnostica Sistema</h3>
+
+<div class="card mt-3">
+    <div class="card-header">
+        <h5>Configurazione HttpClient</h5>
+    </div>
+    <div class="card-body">
+        <table class="table">
+            <tr>
+                <td><strong>BaseAddress:</strong></td>
+                <td><code>@baseAddress</code></td>
+                <td>@(string.IsNullOrEmpty(baseAddress) ? "❌" : "✅")</td>
+            </tr>
+            <tr>
+                <td><strong>Current URL:</strong></td>
+                <td><code>@currentUrl</code></td>
+                <td>✅</td>
+            </tr>
+            <tr>
+                <td><strong>Porta Attesa:</strong></td>
+                <td><code>5264 (http) o 7146 (https)</code></td>
+                <td>@(IsCorrectPort() ? "✅" : "❌")</td>
+            </tr>
+        </table>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header">
+        <h5>Test Connettività API</h5>
+    </div>
+    <div class="card-body">
+        <button class="btn btn-primary" @onclick="TestConnection" disabled="@isLoading">
+            @if (isLoading)
+            {
+                <span class="spinner-border spinner-border-sm"></span>
+            }
+            Test Connessione
+        </button>
+
+        @if (!string.IsNullOrEmpty(testResult))
+        {
+            <div class="alert @testResultClass mt-3">
+                <pre>@testResult</pre>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header">
+        <h5>Endpoint Test</h5>
+    </div>
+    <div class="card-body">
+        <p>Testa singoli endpoint:</p>
+        
+        <div class="mb-2">
+            <button class="btn btn-sm btn-outline-primary" @onclick="@(() => TestEndpoint("api/sqlite/tables"))">
+                GET /api/sqlite/tables
+            </button>
+        </div>
+        
+        <div class="mb-2">
+            <button class="btn btn-sm btn-outline-primary" @onclick="@(() => TestEndpoint("api/sqlserver/test-connection"))">
+                POST /api/sqlserver/test-connection
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(endpointResult))
+        {
+            <div class="alert @endpointResultClass mt-3">
+                <pre>@endpointResult</pre>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header">
+        <h5>Raccomandazioni</h5>
+    </div>
+    <div class="card-body">
+        @if (!string.IsNullOrEmpty(baseAddress) && IsCorrectPort())
+        {
+            <div class="alert alert-success">
+                <strong>✅ Configurazione corretta!</strong><br/>
+                Il client è configurato correttamente e punta al server giusto.
+            </div>
+        }
+        else
+        {
+            <div class="alert alert-danger">
+                <strong>❌ Problema Configurazione!</strong><br/>
+                @if (string.IsNullOrEmpty(baseAddress))
+                {
+                    <p>BaseAddress è vuoto! Questo è un problema grave.</p>
+                }
+                @if (!IsCorrectPort())
+                {
+                    <p>Stai usando la porta sbagliata! Dovresti essere su porta 5264 o 7146.</p>
+                    <p>Attualmente sei su: <strong>@GetCurrentPort()</strong></p>
+                    <p><strong>Soluzione:</strong> Esegui SqlExcelBlazor.Server, non SqlExcelBlazor standalone!</p>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string baseAddress = "";
+    private string currentUrl = "";
+    private string testResult = "";
+    private string testResultClass = "";
+    private string endpointResult = "";
+    private string endpointResultClass = "";
+    private bool isLoading = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        baseAddress = Http.BaseAddress?.ToString() ?? "(null)";
+        currentUrl = await JS.InvokeAsync<string>("eval", "window.location.href");
+    }
+
+    private bool IsCorrectPort()
+    {
+        if (string.IsNullOrEmpty(currentUrl)) return false;
+        return currentUrl.Contains(":5264") || currentUrl.Contains(":7146");
+    }
+
+    private string GetCurrentPort()
+    {
+        try
+        {
+            var uri = new Uri(currentUrl);
+            return uri.Port.ToString();
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
+
+    private async Task TestConnection()
+    {
+        isLoading = true;
+        testResult = "";
+        StateHasChanged();
+
+        try
+        {
+            testResult = $"Testing connection to: {Http.BaseAddress}\n\n";
+            
+            // Test 1: Get tables
+            testResult += "Test 1: GET /api/sqlite/tables\n";
+            var response = await Http.GetAsync("api/sqlite/tables");
+            testResult += $"Status: {response.StatusCode}\n";
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                testResult += $"Response: {content}\n";
+                testResult += "\n✅ Connessione API funzionante!\n";
+                testResultClass = "alert-success";
+            }
+            else
+            {
+                testResult += $"Error: {response.ReasonPhrase}\n";
+                testResult += "\n❌ API non raggiungibile!\n";
+                testResult += "\nPossibili cause:\n";
+                testResult += "1. Server non in esecuzione\n";
+                testResult += "2. Porta sbagliata\n";
+                testResult += "3. CORS bloccato\n";
+                testResultClass = "alert-danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            testResult += $"\n❌ ERRORE: {ex.Message}\n";
+            testResult += $"\nType: {ex.GetType().Name}\n";
+            testResult += $"\nStack: {ex.StackTrace}\n";
+            testResultClass = "alert-danger";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestEndpoint(string endpoint)
+    {
+        endpointResult = $"Testing: {endpoint}\n\n";
+        StateHasChanged();
+
+        try
+        {
+            var fullUrl = $"{Http.BaseAddress}{endpoint}";
+            endpointResult += $"Full URL: {fullUrl}\n\n";
+
+            var response = await Http.GetAsync(endpoint);
+            endpointResult += $"Status Code: {(int)response.StatusCode} {response.StatusCode}\n";
+            endpointResult += $"Reason: {response.ReasonPhrase}\n\n";
+
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                endpointResult += $"Response:\n{content}\n";
+                endpointResultClass = "alert-success";
+            }
+            else
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                endpointResult += $"Error Response:\n{content}\n";
+                endpointResultClass = "alert-danger";
+            }
+        }
+        catch (Exception ex)
+        {
+            endpointResult += $"Exception: {ex.Message}\n";
+            endpointResult += $"Type: {ex.GetType().Name}\n";
+            endpointResultClass = "alert-danger";
+        }
+
+        StateHasChanged();
+    }
+}
