@@ -310,7 +310,8 @@ public class SqliteApiClient
                  Success = true,
                  TableName = result?.TableName ?? "",
                  RowCount = result?.RowCount ?? 0,
-                 Columns = result?.Columns ?? new List<string>()
+                 Columns = result?.Columns ?? new List<string>(),
+                 WarningMessage = result?.WarningMessage
              };
          }
          else
@@ -332,6 +333,7 @@ public class UploadResult
 {
     public bool Success { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? WarningMessage { get; set; }
     public string TableName { get; set; } = "";
     public int RowCount { get; set; }
     public List<string> Columns { get; set; } = new();
@@ -343,6 +345,7 @@ public class UploadSuccessResponse
     public string TableName { get; set; } = "";
     public int RowCount { get; set; }
     public List<string> Columns { get; set; } = new();
+    public string? WarningMessage { get; set; }
 }
 
 public class ErrorResponse

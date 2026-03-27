@@ -12,9 +12,18 @@ builder.Services.AddSession(options =>
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
     
-    // SameSite.None with Secure=true works with HTTPS (even on localhost)
-    options.Cookie.SameSite = SameSiteMode.None;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    // In production, use SameSite.None with Secure=true for CORS scenarios
+    // In development, allow HTTP for easier local testing
+    if (builder.Environment.IsDevelopment())
+    {
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.None;
+    }
+    else
+    {
+        options.Cookie.SameSite = SameSiteMode.None;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    }
     
     // Set explicit cookie name for easier debugging
     options.Cookie.Name = ".SqlStudio.Session";

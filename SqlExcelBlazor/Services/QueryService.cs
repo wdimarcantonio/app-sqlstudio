@@ -11,6 +11,10 @@ namespace SqlExcelBlazor.Services;
 public class QueryService
 {
     private readonly Dictionary<string, DataSource> _tables = new();
+    private readonly Dictionary<string, Dictionary<object, List<Dictionary<string, object?>>>> _indexes = new();
+    private readonly Dictionary<string, (QueryResult Result, DateTime Timestamp)> _queryCache = new();
+    private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(5);
+    private const int MAX_CACHE_SIZE = 10; // Max 10 query in cache
     
     public IReadOnlyDictionary<string, DataSource> Tables => _tables;
     public bool HasData => _tables.Count > 0;
@@ -21,6 +25,7 @@ public class QueryService
     public void LoadTable(DataSource dataSource)
     {
         _tables[dataSource.TableAlias] = dataSource;
+        InvalidateCache(); // Dati cambiati
     }
     
     /// <summary>
@@ -29,6 +34,13 @@ public class QueryService
     public void RemoveTable(string alias)
     {
         _tables.Remove(alias);
+        
+        // Rimuovi indici associati
+        var keysToRemove = _indexes.Keys.Where(k => k.StartsWith(alias + ".")).ToList();
+        foreach (var key in keysToRemove)
+        {
+            _indexes.Remove(key);
+        }
     }
     
     /// <summary>
@@ -37,6 +49,7 @@ public class QueryService
     public void ClearAll()
     {
         _tables.Clear();
+        _indexes.Clear();
     }
     
     /// <summary>
@@ -44,6 +57,58 @@ public class QueryService
     /// Supporta: SELECT, FROM, WHERE, JOIN, ORDER BY
     /// </summary>
     public QueryResult ExecuteQuery(string sql)
+    {
+        // Normalizza query per cache key
+        var cacheKey = NormalizeQuery(sql);
+        
+        // Controlla cache
+        if (_queryCache.TryGetValue(cacheKey, out var cached))
+        {
+            if (DateTime.Now - cached.Timestamp < _cacheExpiration)
+            {
+                Console.WriteLine($"[QueryService] Cache HIT per query: {sql.Substring(0, Math.Min(50, sql.Length))}...");
+                
+                // Clona risultato per evitare modifiche
+                return new QueryResult
+                {
+                    Columns = new List<string>(cached.Result.Columns),
+                    Rows = cached.Result.Rows.Select(r => new Dictionary<string, object?>(r)).ToList(),
+                    ExecutionTime = cached.Result.ExecutionTime,
+                    ErrorMessage = cached.Result.ErrorMessage
+                };
+            }
+            else
+            {
+                // Cache scaduta
+                _queryCache.Remove(cacheKey);
+            }
+        }
+        
+        // Esegui query
+        var result = ExecuteQueryInternal(sql);
+        
+        // Salva in cache solo se successo
+        if (string.IsNullOrEmpty(result.ErrorMessage))
+        {
+            // Limita dimensione cache
+            if (_queryCache.Count >= MAX_CACHE_SIZE)
+            {
+                // Rimuovi entry più vecchia
+                var oldest = _queryCache.OrderBy(kvp => kvp.Value.Timestamp).First();
+                _queryCache.Remove(oldest.Key);
+            }
+            
+            _queryCache[cacheKey] = (result, DateTime.Now);
+            Console.WriteLine($"[QueryService] Query aggiunta a cache. Dimensione: {_queryCache.Count}/{MAX_CACHE_SIZE}");
+        }
+        
+        return result;
+    }
+    
+    /// <summary>
+    /// Esegue effettivamente la query (logica interna)
+    /// </summary>
+    private QueryResult ExecuteQueryInternal(string sql)
     {
         var result = new QueryResult();
         var stopwatch = Stopwatch.StartNew();
@@ -104,7 +169,8 @@ public class QueryService
                     return result;
                 }
                 
-                workingData = ApplyJoin(workingData, joinTable, joinTableName, joinCondition);
+                // Usa JOIN indicizzato per performance migliori
+                workingData = ApplyJoinWithIndex(workingData, joinTable, joinTableName, joinCondition);
             }
             
             // Applica WHERE
@@ -236,6 +302,103 @@ public class QueryService
         return result;
     }
     
+    /// <summary>
+    /// Crea un indice hash per accelerare i JOIN
+    /// </summary>
+    private void BuildIndex(string tableName, string columnName)
+    {
+        var key = $"{tableName}.{columnName}";
+        if (_indexes.ContainsKey(key)) return; // Indice già esistente
+        
+        if (!_tables.TryGetValue(tableName, out var table))
+            return;
+        
+        var index = new Dictionary<object, List<Dictionary<string, object?>>>();
+        
+        foreach (var row in table.Data)
+        {
+            var value = row.GetValueOrDefault(columnName);
+            if (value == null) continue;
+            
+            if (!index.ContainsKey(value))
+                index[value] = new List<Dictionary<string, object?>>();
+            
+            // Convert string dictionary to object? dictionary
+            var objRow = row.ToDictionary(kvp => kvp.Key, kvp => (object?)kvp.Value);
+            index[value].Add(objRow);
+        }
+        
+        _indexes[key] = index;
+        Console.WriteLine($"[QueryService] Indice creato: {key} con {index.Count} valori unici");
+    }
+    
+    /// <summary>
+    /// Applica JOIN usando indice hash (O(n) invece di O(n²))
+    /// </summary>
+    private List<Dictionary<string, object?>> ApplyJoinWithIndex(
+        List<Dictionary<string, object?>> leftData,
+        DataSource rightTable,
+        string rightAlias,
+        string condition)
+    {
+        // Parse condizione
+        var parts = condition.Split('=', StringSplitOptions.TrimEntries);
+        if (parts.Length != 2) 
+        {
+            // Fallback a scan completo se condizione non parsabile
+            return ApplyJoin(leftData, rightTable, rightAlias, condition);
+        }
+        
+        var leftRef = parts[0].Trim('[', ']');
+        var rightRef = parts[1].Trim('[', ']');
+        
+        // Determina colonna destra
+        string rightCol;
+        if (rightRef.StartsWith(rightAlias + "."))
+            rightCol = rightRef.Substring(rightAlias.Length + 1).Trim('[', ']');
+        else if (leftRef.StartsWith(rightAlias + "."))
+            rightCol = leftRef.Substring(rightAlias.Length + 1).Trim('[', ']');
+        else
+            rightCol = rightTable.Columns.Contains(rightRef) ? rightRef : leftRef;
+        
+        // Costruisci indice
+        BuildIndex(rightAlias, rightCol);
+        var indexKey = $"{rightAlias}.{rightCol}";
+        
+        if (!_indexes.TryGetValue(indexKey, out var index))
+        {
+            // Fallback a scan completo
+            return ApplyJoin(leftData, rightTable, rightAlias, condition);
+        }
+        
+        var result = new List<Dictionary<string, object?>>();
+        
+        // JOIN con lookup O(1)
+        foreach (var leftRow in leftData)
+        {
+            var leftValue = GetValueFromRow(leftRow, leftRef);
+            if (leftValue == null) continue;
+            
+            // Lookup O(1) nell'indice invece di scan O(n)
+            if (index.TryGetValue(leftValue, out var matchingRows))
+            {
+                foreach (var rightRow in matchingRows)
+                {
+                    var combinedRow = new Dictionary<string, object?>(leftRow);
+                    foreach (var kvp in rightRow)
+                    {
+                        combinedRow[$"{rightAlias}.{kvp.Key}"] = kvp.Value;
+                        if (!combinedRow.ContainsKey(kvp.Key))
+                            combinedRow[kvp.Key] = kvp.Value;
+                    }
+                    result.Add(combinedRow);
+                }
+            }
+        }
+        
+        return result;
+    }
+    
     private string? GetValueFromRow(Dictionary<string, object?> row, string colRef)
     {
         // colRef può essere "T1.C1" o "C1"
@@ -303,6 +466,24 @@ public class QueryService
         }
         
         return columns;
+    }
+    
+    /// <summary>
+    /// Normalizza query per cache key
+    /// </summary>
+    private string NormalizeQuery(string sql)
+    {
+        // Normalizza per cache (rimuovi whitespace extra, lowercase)
+        return Regex.Replace(sql.ToLowerInvariant().Trim(), @"\s+", " ");
+    }
+    
+    /// <summary>
+    /// Invalida cache quando dati cambiano
+    /// </summary>
+    public void InvalidateCache()
+    {
+        _queryCache.Clear();
+        Console.WriteLine("[QueryService] Cache invalidata");
     }
     
     public string GenerateSelectQuery(IEnumerable<ColumnDefinition> columns, string tableName)
